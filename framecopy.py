@@ -5,7 +5,7 @@ play, download and delete the Steam Frame's recordings, screenshots and videos.
 
 Python standard library only. The FrameCopy dashboard tab turns it on and off:
 
-    server = ShareServer("~/Videos/framecorder")
+    server = ShareServer("~/Videos/SFRecorder")
     server.start()
     print(server.urls, server.pin)   # shown in the headset
     ...
@@ -13,7 +13,7 @@ Python standard library only. The FrameCopy dashboard tab turns it on and off:
 
 It can also be run by hand from Konsole for testing:
 
-    python3 framecopy.py --dir ~/Videos/framecorder
+    python3 framecopy.py --dir ~/Videos/SFRecorder
 
 Recordings in the folder and in its subfolders one level down (such as clips/)
 are listed. Files still being written end in .part and are left out until the
@@ -47,7 +47,7 @@ import zipfile
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-DEFAULT_DIR = "~/Videos/framecorder"
+DEFAULT_DIR = "~/Videos/SFRecorder"
 DEFAULT_PORT = 8642
 IDLE_MINUTES = 30
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov")

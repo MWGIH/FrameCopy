@@ -4,7 +4,7 @@ Play, download and delete your Steam Frame recordings, screenshots and videos fr
 
 It shares:
 
-- recordings from [framecorder](https://github.com/coah80/framecorder) (`~/Videos/framecorder`, including `clips`)
+- recordings from SFRecorder (`~/Videos/SFRecorder`)
 - Steam screenshots, named by game
 - finished video files in Steam Game Recording's folder
 - `~/Videos` and `~/Pictures`, one folder level down
@@ -43,7 +43,7 @@ To share another recordings folder, use another port or share only the recording
 
 ```ini
 [framecopy]
-folder = ~/Videos/framecorder
+folder = ~/Videos/SFRecorder
 port = 8642
 # no = only the recordings folder, not Steam screenshots and clips, Videos and Pictures
 steamos_folders = yes
@@ -65,7 +65,7 @@ It prints the address and PIN; press Ctrl+C to stop.
 
 | Option | What it does |
 |---|---|
-| `--dir FOLDER` | Folder to share (default `~/Videos/framecorder`). Subfolders one level down, such as `clips`, are included |
+| `--dir FOLDER` | Folder to share (default `~/Videos/SFRecorder`). Subfolders one level down, such as `clips`, are included |
 | `--port N` | Port to listen on (default 8642) |
 | `--only-dir` | Share only `--dir`, not Steam's screenshots and clips, `~/Videos` and `~/Pictures` |
 | `--json` | For apps that run FrameCopy as a child process: prints one line `{"urls": [...], "pin": "1234", "port": 8642}` once listening, logs to stderr, exits 0 when sharing stops (idle, SIGTERM or Ctrl+C), and exits 1 if the port is taken |
@@ -85,7 +85,7 @@ A recorder can start and stop sharing itself, for example from a "Share recordin
 ```python
 from framecopy import ShareServer
 
-server = ShareServer("~/Videos/framecorder", port=8642, on_stop=switch_off)
+server = ShareServer("~/Videos/SFRecorder", port=8642, on_stop=switch_off)
 server.start()
 show(server.urls, server.pin)   # server.urls: [".local" address, IP address]
 ...
