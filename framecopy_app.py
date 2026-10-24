@@ -135,9 +135,9 @@ class Menu:
             ip_url, local_url = server.urls[1], server.urls[0]
             cx = self.WIDTH // 2
             draw.text((cx, 245), "In a browser on your PC or phone, open", font=self.small_font, fill=GREY, anchor="mm")
-            # The IP address works on every device; .local names don't resolve everywhere.
-            self._text(draw, (cx, 305), ip_url, (52, 44, 36, 30), 680, fill=WHITE, anchor="mm")
-            self._text(draw, (cx, 360), "or " + local_url, (28, 24, 20), 680, fill=GREY, anchor="mm")
+            # The .local name is easier to type; the IP address is the backup for devices that can't resolve it.
+            self._text(draw, (cx, 305), local_url, (52, 44, 36, 30), 680, fill=WHITE, anchor="mm")
+            self._text(draw, (cx, 360), "or " + ip_url, (28, 24, 20), 680, fill=GREY, anchor="mm")
             pin_font = load_font(80)
             label_width = draw.textlength("PIN  ", font=self.font)
             x = cx - (label_width + draw.textlength(server.pin, font=pin_font)) / 2
