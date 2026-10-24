@@ -21,7 +21,8 @@ are listed. Files still being written end in .part and are left out until the
 recorder renames them. Unless --only-dir is given, the usual SteamOS media
 folders are listed too: Steam's screenshots (named by game), finished files in
 Steam Game Recording's folder, ~/Videos, ~/Pictures and framecorder's folder.
-Steam's own folders are read-only here; files can be deleted from the others.
+Steam's own screenshots and recordings can be deleted too; the page warns first,
+since Steam may list them as missing until it refreshes.
 
 Safety: it only listens while sharing is on, asks for a 4-digit PIN once per
 browser, only serves the video and image files it lists, and turns itself
@@ -51,7 +52,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # steam_recordings.py sits next to this file
-from steam_recordings import DashMovie, UnsupportedRecording, find_sessions  # noqa: E402
+from steam_recordings import STEAM_FOLDER_NAME, DashMovie, UnsupportedRecording, find_sessions  # noqa: E402
 
 DEFAULT_DIR = "~/Videos/SFRecorder"
 FRAMECORDER_DIR = "~/Videos/framecorder"
@@ -218,7 +219,7 @@ class ShareServer:
 
     # --- files ---
 
-    def _scan(self, found, source, label, root, depth, deletable, group=None):
+    def _scan(self, found, source, label, root, depth, deletable, group=None, steam=False):
         """Adds the finished videos and images under root, `depth` folder levels down, to found."""
         now = time.time()
         root = os.path.realpath(root)
@@ -243,7 +244,7 @@ class ShareServer:
                 name = source + "/" + (file if rel == "." else rel.replace(os.sep, "/") + "/" + file)
                 sub = group or ("" if rel == "." else rel.replace(os.sep, "/"))
                 found.append((path, {"name": name, "file": file, "source": source, "label": label, "group": sub,
-                                     "kind": kind, "deletable": deletable, "size": st.st_size,
+                                     "kind": kind, "deletable": deletable, "steam": steam, "size": st.st_size,
                                      "size_text": human_size(st.st_size), "mtime": st.st_mtime}))
 
     def _own_folders(self):
@@ -266,8 +267,8 @@ class ShareServer:
                 for folder in sorted(glob.glob(pattern)):
                     app_id = os.path.basename(os.path.dirname(folder))
                     user = os.path.relpath(folder, userdata).split(os.sep)[0]
-                    self._scan(found, f"steam-screenshots/{user}/{app_id}", "Steam screenshots", folder, 0, False,
-                               group=games.get(app_id, f"App {app_id}"))
+                    self._scan(found, f"steam-screenshots/{user}/{app_id}", "Steam screenshots", folder, 0, True,
+                               group=games.get(app_id, f"App {app_id}"), steam=True)
                 self._steam_recordings(found, steam, games)
             self._scan(found, "videos", "Videos", os.path.expanduser("~/Videos"), 2, True)
             self._scan(found, "pictures", "Pictures", os.path.expanduser("~/Pictures"), 2, True)
@@ -292,7 +293,7 @@ class ShareServer:
             label = "Steam clips" if session["kind"] == "clip" else "Steam recordings"
             found.append((session["session_dir"], {
                 "name": name, "file": file, "source": "steam-recordings", "label": label, "group": game,
-                "kind": "video", "deletable": False, "virtual": True, "size": session["size"],
+                "kind": "video", "deletable": True, "steam": True, "virtual": True, "size": session["size"],
                 "size_text": human_size(session["size"]), "mtime": session["mtime"]}))
 
     def open_range(self, name):
@@ -398,10 +399,18 @@ class ShareServer:
 
     def delete(self, name):
         path, info = self.lookup(name)
-        # Steam's own folders are read-only here, so Steam's records of them stay right.
         if not path or not info["deletable"]:
             return False
-        os.remove(path)
+        if info.get("virtual"):
+            self._delete_steam_recording(path)
+        else:
+            os.remove(path)
+            if info.get("steam"):
+                # Steam keeps a small copy of each screenshot next to it.
+                try:
+                    os.remove(os.path.join(os.path.dirname(path), "thumbnails", info["file"]))
+                except OSError:
+                    pass
         with self._list_lock:
             self._listing = ([], {}, 0.0)
         for cached in os.listdir(CACHE_DIR) if os.path.isdir(CACHE_DIR) else []:
@@ -409,6 +418,22 @@ class ShareServer:
                 os.remove(os.path.join(CACHE_DIR, cached))
         log(f"Deleted {name}")
         return True
+
+    def _delete_steam_recording(self, session_dir):
+        """Removes one recording session; the whole bg_/clip_ folder once no session is left in it."""
+        with self._list_lock:
+            self._movies.pop(session_dir, None)
+        # The outermost bg_/clip_ folder: a clip keeps its session in clip_.../video/bg_.../.
+        recording, folder = None, session_dir
+        while os.path.dirname(folder) != folder:
+            if STEAM_FOLDER_NAME.match(os.path.basename(folder)):
+                recording = folder
+            folder = os.path.dirname(folder)
+        if not recording:
+            raise OSError(f"Not in a Steam recording folder: {session_dir}")
+        shutil.rmtree(session_dir)
+        if os.path.isdir(recording) and not glob.glob(os.path.join(recording, "**", "init-stream0.m4s"), recursive=True):
+            shutil.rmtree(recording)
 
     # --- PIN ---
 
@@ -739,7 +764,6 @@ dialog video, dialog img { display:block; max-width:96vw; max-height:85vh; }
 dialog [hidden] { display:none; }
 .filters { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; }
 .filters:empty { display:none; }
-.steam-note { align-self:center; font-size:13px; color:var(--muted); }
 .chip { padding:5px 14px; border-radius:999px; font-size:14px; color:var(--muted); }
 .chip.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 dialog::backdrop { background:rgba(0,0,0,.8); }
@@ -808,8 +832,7 @@ function render() {
       <div class="info"><div class="name">${esc(f.file)}</div>
         <div class="meta">${esc(f.label)}${f.group ? " &middot; " + esc(f.group) : ""}<br>${new Date(f.mtime * 1000).toLocaleString()} &middot; ${f.size_text}</div>
         <div class="actions"><a class="button" href="/files/${enc(f.name)}?download">Download</a>
-          ${f.deletable ? '<button class="danger" data-delete>Delete</button>'
-                        : '<span class="steam-note" title="Steam keeps its own list of these, so delete them in Steam">Delete in Steam</span>'}</div></div>
+          ${f.deletable ? '<button class="danger" data-delete>Delete</button>' : ""}</div></div>
     </div>`).join("");
   updateButtons();
 }
@@ -825,7 +848,10 @@ async function remove(names) {
   names = names.filter(n => byName(n)?.deletable);
   if (!names.length) return;
   let question = names.length === 1 ? `Delete ${byName(names[0]).file}?` : `Delete ${names.length} files?`;
-  if (skipped) question += `\n${skipped} from Steam's folders will be kept: delete those in Steam.`;
+  const steam = names.filter(n => byName(n).steam).length;
+  if (steam) question += `\n\n${steam === names.length ? (steam === 1 ? "This is one of" : "These are") : steam + " of these are"} Steam's own `
+    + `screenshots or recordings. Steam may still list ${steam === 1 ? "it" : "them"} as missing until it refreshes.`;
+  if (skipped) question += `\n${skipped} can't be deleted and will be kept.`;
   if (!confirm(question)) return;
   await fetch("/api/delete", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({names})});
   names.forEach(n => selected.delete(n));

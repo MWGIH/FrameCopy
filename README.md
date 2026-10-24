@@ -14,7 +14,7 @@ It shares:
 - `~/Videos` and `~/Pictures`, one folder level down
 - older recordings from [framecorder](https://github.com/coah80/framecorder) (`~/Videos/framecorder`, including `clips`)
 
-The page has a filter for each of these. Steam's own folders are view and download only, so Steam's screenshot list stays correct; delete those in Steam.
+The page has a filter for each of these. Steam's own screenshots, recordings and clips can be deleted too, after a warning: Steam keeps its own list of them, so it may show a deleted one as missing until it refreshes.
 
 ## Install on a Steam Frame
 
