@@ -19,8 +19,8 @@ Recordings in the folder and in its subfolders one level down (such as clips/)
 are listed. Files still being written end in .part and are left out until the
 recorder renames them. Unless --only-dir is given, the usual SteamOS media
 folders are listed too: Steam's screenshots (named by game), finished files in
-Steam Game Recording's folder, ~/Videos and ~/Pictures. Steam's own folders are
-read-only here; files can be deleted from the others.
+Steam Game Recording's folder, ~/Videos, ~/Pictures and framecorder's folder.
+Steam's own folders are read-only here; files can be deleted from the others.
 
 Safety: it only listens while sharing is on, asks for a 4-digit PIN once per
 browser, only serves the video and image files it lists, and turns itself
@@ -48,6 +48,7 @@ from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_DIR = "~/Videos/SFRecorder"
+FRAMECORDER_DIR = "~/Videos/framecorder"
 DEFAULT_PORT = 8642
 IDLE_MINUTES = 30
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov")
@@ -192,9 +193,9 @@ class ShareServer:
         for folder, dirs, files in os.walk(root):
             rel = os.path.relpath(folder, root)
             level = 0 if rel == "." else rel.count(os.sep) + 1
-            # Hidden folders, the recordings folder (listed on its own) and anything too deep are skipped.
+            # Hidden folders, folders listed on their own and anything too deep are skipped.
             dirs[:] = [d for d in dirs if not d.startswith(".") and level < depth
-                       and os.path.join(folder, d) != self.recordings_dir]
+                       and os.path.join(folder, d) not in self._own_folders()]
             for file in files:
                 lower = file.lower()
                 kind = "video" if lower.endswith(VIDEO_EXTENSIONS) else "image" if lower.endswith(IMAGE_EXTENSIONS) else None
@@ -212,6 +213,13 @@ class ShareServer:
                 found.append((path, {"name": name, "file": file, "source": source, "label": label, "group": sub,
                                      "kind": kind, "deletable": deletable, "size": st.st_size,
                                      "size_text": human_size(st.st_size), "mtime": st.st_mtime}))
+
+    def _own_folders(self):
+        """Folders with their own entry, so a scan of ~/Videos doesn't list them twice."""
+        own = {self.recordings_dir}
+        if self.steamos_folders:
+            own.add(os.path.realpath(os.path.expanduser(FRAMECORDER_DIR)))
+        return own
 
     def _list(self):
         found = []
@@ -234,6 +242,9 @@ class ShareServer:
                                user, 4, False)
             self._scan(found, "videos", "Videos", os.path.expanduser("~/Videos"), 2, True)
             self._scan(found, "pictures", "Pictures", os.path.expanduser("~/Pictures"), 2, True)
+            framecorder = os.path.realpath(os.path.expanduser(FRAMECORDER_DIR))
+            if framecorder != self.recordings_dir:
+                self._scan(found, "framecorder", "framecorder", framecorder, 1, True)
         found.sort(key=lambda f: f[1]["mtime"], reverse=True)
         return [f for _, f in found], {f["name"]: (path, f) for path, f in found}
 
@@ -597,7 +608,7 @@ function updateButtons() {
   document.getElementById("zip").textContent = selected.size ? `Download selected (${selected.size})` : "Download selected";
 }
 function render() {
-  const order = ["Recordings", "Steam screenshots", "Steam clips", "Videos", "Pictures"];
+  const order = ["Recordings", "Steam screenshots", "Steam clips", "Videos", "Pictures", "framecorder"];
   const labels = [...new Set(files.map(f => f.label))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
   if (filter !== "All" && !labels.includes(filter)) filter = "All";
   document.getElementById("filters").innerHTML = labels.length > 1 ? ["All", ...labels].map(l => {

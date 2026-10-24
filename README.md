@@ -8,6 +8,7 @@ It shares:
 - Steam screenshots, named by game
 - finished video files in Steam Game Recording's folder
 - `~/Videos` and `~/Pictures`, one folder level down
+- older recordings from [framecorder](https://github.com/coah80/framecorder) (`~/Videos/framecorder`, including `clips`)
 
 The page has a filter for each of these. Steam's own folders are view and download only, so Steam's screenshot list stays correct; delete those in Steam.
 
@@ -45,7 +46,7 @@ To share another recordings folder, use another port or share only the recording
 [framecopy]
 folder = ~/Videos/SFRecorder
 port = 8642
-# no = only the recordings folder, not Steam screenshots and clips, Videos and Pictures
+# no = only the recordings folder, not Steam screenshots and clips, Videos, Pictures and framecorder
 steamos_folders = yes
 ```
 
@@ -67,7 +68,7 @@ It prints the address and PIN; press Ctrl+C to stop.
 |---|---|
 | `--dir FOLDER` | Folder to share (default `~/Videos/SFRecorder`). Subfolders one level down, such as `clips`, are included |
 | `--port N` | Port to listen on (default 8642) |
-| `--only-dir` | Share only `--dir`, not Steam's screenshots and clips, `~/Videos` and `~/Pictures` |
+| `--only-dir` | Share only `--dir`, not Steam's screenshots and clips, `~/Videos`, `~/Pictures` and framecorder's folder |
 | `--json` | For apps that run FrameCopy as a child process: prints one line `{"urls": [...], "pin": "1234", "port": 8642}` once listening, logs to stderr, exits 0 when sharing stops (idle, SIGTERM or Ctrl+C), and exits 1 if the port is taken |
 
 ## Good to know
