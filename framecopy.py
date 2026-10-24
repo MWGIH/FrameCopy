@@ -46,7 +46,6 @@ import threading
 import time
 import urllib.parse
 import zipfile
-from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # steam_recordings.py sits next to this file
@@ -480,11 +479,13 @@ class _Handler(BaseHTTPRequestHandler):
     # --- plumbing ---
 
     def _cookie(self, name):
-        try:
-            jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
-        except cookies.CookieError:
-            return ""
-        return jar[name].value if name in jar else ""
+        # Split by hand: SimpleCookie gives up on the rest of the header at the first cookie it
+        # can't parse, and other apps on the headset share this host's cookies (ports don't count).
+        for part in self.headers.get("Cookie", "").split(";"):
+            key, sep, value = part.strip().partition("=")
+            if sep and key == name:
+                return value.strip().strip('"')
+        return ""
 
     def _authed(self):
         return (self._cookie(COOKIE_NAME) in self.share._sessions
@@ -643,8 +644,9 @@ class _Handler(BaseHTTPRequestHandler):
                 headers = [("Location", "/"),
                            ("Set-Cookie", f"{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict")]
                 if form.get("remember"):
+                    # Lax, not Strict: the browser still sends it when the page is opened from a link or bookmark.
                     device = self.share.remember_device(self.headers.get("User-Agent", "Unknown browser"))
-                    headers.append(("Set-Cookie", f"{DEVICE_COOKIE}={device}; Path=/; HttpOnly; SameSite=Strict; "
+                    headers.append(("Set-Cookie", f"{DEVICE_COOKIE}={device}; Path=/; HttpOnly; SameSite=Lax; "
                                                   f"Max-Age={DEVICE_COOKIE_SECONDS}"))
                 return self._send(303, "", headers=headers)
             error = ("Too many wrong PINs. Wait 30 seconds and try again." if self.share.locked_out(ip)
