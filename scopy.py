@@ -739,6 +739,7 @@ dialog video, dialog img { display:block; max-width:96vw; max-height:85vh; }
 dialog [hidden] { display:none; }
 .filters { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; }
 .filters:empty { display:none; }
+.steam-note { align-self:center; font-size:13px; color:var(--muted); }
 .chip { padding:5px 14px; border-radius:999px; font-size:14px; color:var(--muted); }
 .chip.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 dialog::backdrop { background:rgba(0,0,0,.8); }
@@ -807,7 +808,8 @@ function render() {
       <div class="info"><div class="name">${esc(f.file)}</div>
         <div class="meta">${esc(f.label)}${f.group ? " &middot; " + esc(f.group) : ""}<br>${new Date(f.mtime * 1000).toLocaleString()} &middot; ${f.size_text}</div>
         <div class="actions"><a class="button" href="/files/${enc(f.name)}?download">Download</a>
-          ${f.deletable ? '<button class="danger" data-delete>Delete</button>' : ""}</div></div>
+          ${f.deletable ? '<button class="danger" data-delete>Delete</button>'
+                        : '<span class="steam-note" title="Steam keeps its own list of these, so delete them in Steam">Delete in Steam</span>'}</div></div>
     </div>`).join("");
   updateButtons();
 }
