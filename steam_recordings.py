@@ -1,5 +1,5 @@
 """
-Steam Game Recording support for FrameCopy: finds Steam's raw recordings and
+Steam Game Recording support for SCopy: finds Steam's raw recordings and
 clips and serves each one as a single MP4, built on the fly. Python standard
 library only, no ffmpeg, and nothing extra is written to disk.
 

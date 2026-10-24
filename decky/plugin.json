@@ -1,0 +1,11 @@
+{
+  "name": "SCopy",
+  "author": "Games In Hand",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["media", "screenshots", "recordings", "transfer"],
+    "description": "Copy your recordings, screenshots and videos to a PC or phone on the same network, from any browser.",
+    "image": "https://raw.githubusercontent.com/MWGIH/SCopy/main/assets/icon.png"
+  }
+}

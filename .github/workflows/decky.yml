@@ -1,0 +1,50 @@
+name: Decky plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: decky/pnpm-lock.yaml
+      - run: decky/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SCopy-decky
+          path: decky/out/SCopy.zip
+
+      # Every push to main refreshes the "decky-latest" pre-release, so the newest zip
+      # is always at .../releases/download/decky-latest/SCopy.zip.
+      - name: Move the decky-latest tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git tag -f decky-latest
+          git push -f origin decky-latest
+      - uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: decky-latest
+          name: SCopy for Decky (latest from main)
+          prerelease: true
+          make_latest: false
+          files: decky/out/SCopy.zip
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: decky/out/SCopy.zip

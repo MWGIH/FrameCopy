@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-FrameCopy - a small web page that lets any browser on the same network
-play, download and delete the Steam Frame's recordings, screenshots and videos.
+SCopy - a small web page that lets any browser on the same network
+play, download and delete the recordings, screenshots and videos on a Steam Frame,
+Steam Deck or Steam Machine.
 
-Python standard library only. The FrameCopy dashboard tab turns it on and off:
+Python standard library only. The SCopy dashboard tab turns it on and off:
 
     server = ShareServer("~/Videos/SFRecorder")
     server.start()
-    print(server.urls, server.pin)   # shown in the headset
+    print(server.urls, server.pin)   # shown in the headset or Steam's Quick Access menu
     ...
     server.stop()
 
 It can also be run by hand from Konsole for testing:
 
-    python3 framecopy.py --dir ~/Videos/SFRecorder
+    python3 scopy.py --dir ~/Videos/SFRecorder
 
 Recordings in the folder and in its subfolders one level down (such as clips/)
 are listed. Files still being written end in .part and are left out until the
@@ -28,6 +29,7 @@ off after IDLE_MINUTES with no requests.
 """
 
 import argparse
+import configparser
 import glob
 import hashlib
 import hmac
@@ -68,14 +70,16 @@ SETTLE_SECONDS = 5.0
 MAX_FAILED_PINS = 5
 LOCKOUT_SECONDS = 30.0
 COPY_CHUNK = 1024 * 1024
-COOKIE_NAME = "frame_share"
+COOKIE_NAME = "scopy_session"
 # Long-lived cookie for a computer that ticked "Remember this computer".
-DEVICE_COOKIE = "framecopy_device"
+DEVICE_COOKIE = "scopy_device"
+LEGACY_DEVICE_COOKIE = "framecopy_device"   # set before the rename; still accepted
 DEVICE_COOKIE_SECONDS = 365 * 24 * 3600
-DEVICES_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
-                            "framecopy", "devices.json")
+CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "scopy")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.ini")
+DEVICES_FILE = os.path.join(CONFIG_DIR, "devices.json")
 CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
-                         "framecopy", "thumbs")
+                         "scopy", "thumbs")
 MIME_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm",
               ".mov": "video/quicktime", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
               ".webp": "image/webp"}
@@ -131,6 +135,19 @@ def human_size(size):
         size /= 1024
 
 
+def read_config():
+    """Recordings folder, port and whether to share SteamOS media folders, from ~/.config/scopy/config.ini."""
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    section = config["scopy"] if config.has_section("scopy") else {}
+    try:
+        port = int(section.get("port", DEFAULT_PORT))
+    except ValueError:
+        port = DEFAULT_PORT
+    steamos_folders = str(section.get("steamos_folders", "yes")).lower() not in ("no", "false", "0", "off")
+    return section.get("folder", DEFAULT_DIR), port, steamos_folders
+
+
 class ShareServer:
     def __init__(self, recordings_dir=DEFAULT_DIR, port=DEFAULT_PORT, idle_minutes=IDLE_MINUTES,
                  on_stop=None, steamos_folders=True, devices_file=DEVICES_FILE):
@@ -161,7 +178,7 @@ class ShareServer:
 
     @property
     def urls(self):
-        """Addresses to show in the headset, the friendly name first."""
+        """Addresses to show to the user, the friendly name first."""
         return [f"http://{socket.gethostname()}.local:{self.port}", f"http://{lan_ip()}:{self.port}"]
 
     def start(self):
@@ -471,7 +488,7 @@ class ShareServer:
 class _Handler(BaseHTTPRequestHandler):
     share = None    # set per server in ShareServer.start()
     protocol_version = "HTTP/1.1"
-    server_version = "FrameShare"
+    server_version = "SCopy"
 
     def log_message(self, fmt, *args):
         pass
@@ -480,7 +497,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _cookie(self, name):
         # Split by hand: SimpleCookie gives up on the rest of the header at the first cookie it
-        # can't parse, and other apps on the headset share this host's cookies (ports don't count).
+        # can't parse, and other apps on this device share this host's cookies (ports don't count).
         for part in self.headers.get("Cookie", "").split(";"):
             key, sep, value = part.strip().partition("=")
             if sep and key == name:
@@ -489,7 +506,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _authed(self):
         return (self._cookie(COOKIE_NAME) in self.share._sessions
-                or self.share.device_known(self._cookie(DEVICE_COOKIE)))
+                or self.share.device_known(self._device_cookie()))
+
+    def _device_cookie(self):
+        return self._cookie(DEVICE_COOKIE) or self._cookie(LEGACY_DEVICE_COOKIE)
 
     def _send(self, status, body=b"", content_type="text/plain; charset=utf-8", headers=None):
         if isinstance(body, str):
@@ -611,7 +631,7 @@ class _Handler(BaseHTTPRequestHandler):
         # known up front, so the connection closes at the end instead.
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Disposition", f"attachment; filename=\"framecopy-{time.strftime('%Y%m%d-%H%M')}.zip\"")
+        self.send_header("Content-Disposition", f"attachment; filename=\"scopy-{time.strftime('%Y%m%d-%H%M')}.zip\"")
         self.send_header("Connection", "close")
         self.end_headers()
         self.close_connection = True
@@ -650,7 +670,7 @@ class _Handler(BaseHTTPRequestHandler):
                                                   f"Max-Age={DEVICE_COOKIE_SECONDS}"))
                 return self._send(303, "", headers=headers)
             error = ("Too many wrong PINs. Wait 30 seconds and try again." if self.share.locked_out(ip)
-                     else "Wrong PIN. Check the number shown in the headset.")
+                     else "Wrong PIN. Check the number shown in SCopy on your Steam device.")
             page = PIN_PAGE.replace("{error}", f'<p class="error">{html.escape(error)}</p>')
             return self._send(403, page, "text/html; charset=utf-8")
         if not self._authed():
@@ -666,11 +686,12 @@ class _Handler(BaseHTTPRequestHandler):
             deleted = [n for n in names if isinstance(n, str) and self.share.delete(n)]
             return self._json({"deleted": deleted})
         if section == "api" and name == "forget":
-            device = self._cookie(DEVICE_COOKIE)
+            device = self._device_cookie()
             if device:
                 self.share.forget_device(device)
             return self._send(200, "", headers=[
                 ("Set-Cookie", f"{DEVICE_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+                ("Set-Cookie", f"{LEGACY_DEVICE_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
                 ("Set-Cookie", f"{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0")])
         return self._send(404, "Not found")
 
@@ -731,11 +752,11 @@ dialog::backdrop { background:rgba(0,0,0,.8); }
 """
 
 PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>FrameCopy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>SCopy</title>
 <style>""" + STYLE + """</style></head><body>
 <form class="pin" method="post" action="/login">
-<h1>FrameCopy</h1>
-<p>Enter the PIN shown in the headset.</p>
+<h1>SCopy</h1>
+<p>Enter the PIN shown in SCopy on your Steam device.</p>
 {error}
 <input name="pin" inputmode="numeric" autocomplete="off" maxlength="4" autofocus required>
 <label class="remember"><input type="checkbox" name="remember" checked> Remember this computer</label>
@@ -743,10 +764,10 @@ PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 </form></body></html>"""
 
 MAIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>FrameCopy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>SCopy</title>
 <style>""" + STYLE + """</style></head><body>
 <header>
-<h1>FrameCopy</h1>
+<h1>SCopy</h1>
 <button id="all">Select all</button>
 <button id="zip" class="primary" disabled>Download selected</button>
 <button id="del" class="danger" disabled>Delete selected</button>
@@ -848,7 +869,7 @@ document.getElementById("zip").onclick = () => {
 document.getElementById("del").onclick = () => remove([...selected]);
 document.getElementById("refresh").onclick = load;
 document.getElementById("forget").onclick = async () => {
-  if (!confirm("Forget this computer? You'll need the PIN from the headset next time.")) return;
+  if (!confirm("Forget this computer? You'll need the PIN from SCopy next time.")) return;
   await fetch("/api/forget", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
   location.reload();
 };

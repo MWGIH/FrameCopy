@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FrameCopy app - a "FrameCopy" tab in the SteamVR dashboard that starts and stops
+SCopy app - a "SCopy" tab in the SteamVR dashboard that starts and stops
 sharing and shows how to connect: the address and the PIN.
 
 Runs as a user service that waits for SteamVR. Sharing lives in this process,
@@ -8,7 +8,6 @@ not in SteamVR, so it keeps going if SteamVR quits and stops on its own after
 30 minutes without use.
 """
 
-import configparser
 import ctypes
 import glob
 import os
@@ -20,12 +19,10 @@ import time
 import openvr
 from PIL import Image, ImageDraw, ImageFont
 
-from framecopy import DEFAULT_DIR, DEFAULT_PORT, IDLE_MINUTES, ShareServer
+from scopy import CONFIG_DIR, IDLE_MINUTES, ShareServer, read_config
 
-APP_KEY = "gamesinhand.framecopy"
+APP_KEY = "gamesinhand.scopy"
 INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "framecopy")
-CONFIG_FILE = os.path.join(CONFIG_DIR, "config.ini")
 SOURCE_DIR_FILE = os.path.join(CONFIG_DIR, "source_dir")
 
 CONFIRM_SECONDS = 5.0   # window for the second "Uninstall" click
@@ -67,19 +64,6 @@ def read_text(path):
         return None
 
 
-def read_config():
-    """Recordings folder, port and whether to share SteamOS media folders, from ~/.config/framecopy/config.ini."""
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    section = config["framecopy"] if config.has_section("framecopy") else {}
-    try:
-        port = int(section.get("port", DEFAULT_PORT))
-    except ValueError:
-        port = DEFAULT_PORT
-    steamos_folders = str(section.get("steamos_folders", "yes")).lower() not in ("no", "false", "0", "off")
-    return section.get("folder", DEFAULT_DIR), port, steamos_folders
-
-
 def to_texture(img):
     data = img.tobytes()
     return (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
@@ -92,7 +76,7 @@ def run_detached(command):
 
 
 class Menu:
-    """The 'FrameCopy' tab in the SteamVR dashboard."""
+    """The 'SCopy' tab in the SteamVR dashboard."""
     WIDTH, HEIGHT = 800, 840
     BAR = (0, 0, 0, 255)
     BG = (8, 17, 31, 255)
@@ -130,7 +114,7 @@ class Menu:
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), self.BG)
         draw = ImageDraw.Draw(img)
         draw.rectangle((0, 0, self.WIDTH, 82), fill=self.BAR)
-        draw.text((self.WIDTH // 2, 42), "FrameCopy", font=self.title_font, fill=BRAND, anchor="mm")
+        draw.text((self.WIDTH // 2, 42), "SCopy", font=self.title_font, fill=BRAND, anchor="mm")
 
         sharing = server.active
         self._button(draw, (60, 100, 740, 200), "Stop sharing" if sharing else "Start sharing", "toggle",
@@ -182,11 +166,15 @@ class Menu:
         return None
 
     @staticmethod
-    def thumbnail():
-        img = Image.new("RGBA", (256, 256), Menu.BAR)
+    def thumbnail(size=256):
+        """The SCopy icon (same shapes as assets/icon.svg): a cyan outline sheet behind a blue one with an S."""
+        k = 4   # draw large and scale down for smooth edges
+        img = Image.new("RGBA", (256 * k, 256 * k), Menu.BAR)
         draw = ImageDraw.Draw(img)
-        draw.text((128, 128), "COPY", font=load_font(60), fill=BRAND, anchor="mm")
-        return img
+        draw.rounded_rectangle((44 * k, 28 * k, 168 * k, 180 * k), radius=22 * k, outline=ACCENT, width=14 * k)
+        draw.rounded_rectangle((88 * k, 76 * k, 212 * k, 228 * k), radius=22 * k, fill=BRAND)
+        draw.text((150 * k, 154 * k), "S", font=load_font(120 * k), fill=WHITE, anchor="mm")
+        return img.resize((size, size), Image.LANCZOS)
 
 
 def steamvr_running():
@@ -205,7 +193,7 @@ def run(server):
     overlay = openvr.VROverlay()
     menu = Menu()
 
-    menu_handle, thumb_handle = overlay.createDashboardOverlay(APP_KEY + ".dashboard", "FrameCopy")
+    menu_handle, thumb_handle = overlay.createDashboardOverlay(APP_KEY + ".dashboard", "SCopy")
     overlay.setOverlayWidthInMeters(menu_handle, 1.5)
     overlay.setOverlayInputMethod(menu_handle, openvr.VROverlayInputMethod_Mouse)
     mouse_scale = openvr.HmdVector2_t()
@@ -241,7 +229,7 @@ def run(server):
             if not (source and os.path.isdir(os.path.join(source, ".git"))):
                 status = "Update needs the original git checkout"
             else:
-                status = "Updating FrameCopy... it will restart"
+                status = "Updating SCopy... it will restart"
                 run_detached(f'cd "{source}" && git pull --ff-only && ./install.sh')
         elif action == "forget":
             if confirmed:
