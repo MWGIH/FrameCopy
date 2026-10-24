@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-FrameCopy - a small web page that lets any browser on the same network
+SCopy - a small web page that lets any browser on the same network
 play, download and delete the Steam Frame's recordings, screenshots and videos.
 
-Python standard library only. The FrameCopy dashboard tab turns it on and off:
+Python standard library only. The SCopy dashboard tab turns it on and off:
 
     server = ShareServer("~/Videos/SFRecorder")
     server.start()
@@ -611,7 +611,7 @@ class _Handler(BaseHTTPRequestHandler):
         # known up front, so the connection closes at the end instead.
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Disposition", f"attachment; filename=\"framecopy-{time.strftime('%Y%m%d-%H%M')}.zip\"")
+        self.send_header("Content-Disposition", f"attachment; filename=\"scopy-{time.strftime('%Y%m%d-%H%M')}.zip\"")
         self.send_header("Connection", "close")
         self.end_headers()
         self.close_connection = True
@@ -731,10 +731,10 @@ dialog::backdrop { background:rgba(0,0,0,.8); }
 """
 
 PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>FrameCopy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>SCopy</title>
 <style>""" + STYLE + """</style></head><body>
 <form class="pin" method="post" action="/login">
-<h1>FrameCopy</h1>
+<h1>SCopy</h1>
 <p>Enter the PIN shown in the headset.</p>
 {error}
 <input name="pin" inputmode="numeric" autocomplete="off" maxlength="4" autofocus required>
@@ -743,10 +743,10 @@ PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 </form></body></html>"""
 
 MAIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>FrameCopy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>SCopy</title>
 <style>""" + STYLE + """</style></head><body>
 <header>
-<h1>FrameCopy</h1>
+<h1>SCopy</h1>
 <button id="all">Select all</button>
 <button id="zip" class="primary" disabled>Download selected</button>
 <button id="del" class="danger" disabled>Delete selected</button>

@@ -1,4 +1,4 @@
-# FrameCopy
+# SCopy
 
 Play, download and delete your Steam Frame recordings, screenshots and videos from any browser on the same Wi-Fi: a PC, a Mac or a phone. Nothing needs installing on the other device, and nothing needs root on the Frame. Start and stop it from a tab in the SteamVR dashboard.
 
@@ -20,17 +20,17 @@ You can install it straight from the headset. You don't need Desktop Mode.
 2. **Open Konsole,** paste this line and press Enter:
 
 ```bash
-cd ~ && (git clone https://github.com/MWGIH/FrameCopy.git || git -C FrameCopy pull) && FrameCopy/install.sh
+cd ~ && (git clone https://github.com/MWGIH/SCopy.git || git -C SCopy pull) && SCopy/install.sh
 ```
 
 Running the same line again later updates it.
 
 ## Use it
 
-Open the **SteamVR dashboard** and select the **FrameCopy** tab.
+Open the **SteamVR dashboard** and select the **SCopy** tab.
 
 1. Press **Start sharing**. The tab shows an address and a 4-digit PIN.
-2. On your PC or phone, open the address in a browser and enter the PIN. Leave **Remember this computer** ticked and that browser won't ask for the PIN again, even after FrameCopy restarts.
+2. On your PC or phone, open the address in a browser and enter the PIN. Leave **Remember this computer** ticked and that browser won't ask for the PIN again, even after SCopy restarts.
 3. Click a video to play it or a picture to view it, download one, tick several to download them as one zip, or delete them (it asks first).
 4. Press **Stop sharing** when you're done. It also stops by itself after 30 minutes without use.
 
@@ -38,7 +38,7 @@ Sharing keeps going if you leave VR, until you stop it or it times out.
 
 To make a computer ask for the PIN again, press **Forget this computer** on the page, or **Forget PCs** in the tab to forget them all (click twice). A computer is remembered per address, so the `.local` address and the IP address each ask once.
 
-The tab also has **Update**, which downloads the latest FrameCopy, and **Uninstall** (click twice). Uninstalling never touches your recordings.
+The tab also has **Update**, which downloads the latest SCopy, and **Uninstall** (click twice). Uninstalling never touches your recordings.
 
 ## Settings
 
@@ -52,14 +52,14 @@ port = 8642
 steamos_folders = yes
 ```
 
-Then restart FrameCopy with `systemctl --user restart framecopy`.
+Then restart SCopy with `systemctl --user restart framecopy`.
 
 ## Without the headset
 
 You can also share from Konsole or over SSH, without the app or SteamVR:
 
 ```bash
-python3 ~/FrameCopy/framecopy.py
+python3 ~/SCopy/framecopy.py
 ```
 
 It prints the address and PIN; press Ctrl+C to stop.
@@ -71,12 +71,12 @@ It prints the address and PIN; press Ctrl+C to stop.
 | `--dir FOLDER` | Folder to share (default `~/Videos/SFRecorder`). Subfolders one level down, such as `clips`, are included |
 | `--port N` | Port to listen on (default 8642) |
 | `--only-dir` | Share only `--dir`, not Steam's screenshots and clips, `~/Videos`, `~/Pictures` and framecorder's folder |
-| `--json` | For apps that run FrameCopy as a child process: prints one line `{"urls": [...], "pin": "1234", "port": 8642}` once listening, logs to stderr, exits 0 when sharing stops (idle, SIGTERM or Ctrl+C), and exits 1 if the port is taken |
+| `--json` | For apps that run SCopy as a child process: prints one line `{"urls": [...], "pin": "1234", "port": 8642}` once listening, logs to stderr, exits 0 when sharing stops (idle, SIGTERM or Ctrl+C), and exits 1 if the port is taken |
 
 ## Good to know
 
 - Only videos (`.mp4`, `.mkv`, `.webm`, `.mov`) and pictures (`.jpg`, `.png`, `.webp`) are shown. Recordings still being written (`.part` files) appear once they finish.
-- Steam Game Recording saves each recording as many small pieces (`.m4s` chunks). FrameCopy joins them into one MP4 as you play or download it, without ffmpeg and without using extra space. It finds them in Steam's default folder and in the recording folder chosen in Steam's settings. A recording still being made appears 30 seconds after it stops.
+- Steam Game Recording saves each recording as many small pieces (`.m4s` chunks). SCopy joins them into one MP4 as you play or download it, without ffmpeg and without using extra space. It finds them in Steam's default folder and in the recording folder chosen in Steam's settings. A recording still being made appears 30 seconds after it stops.
 - Video thumbnails need `ffmpeg`. Without it the page still works, it just shows no video previews.
 - If the `.local` address doesn't open, use the one with the number (IP address).
 - It uses plain HTTP and a PIN, which is fine on your home network. Don't turn it on over public Wi-Fi.

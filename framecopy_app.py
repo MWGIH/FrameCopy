@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FrameCopy app - a "FrameCopy" tab in the SteamVR dashboard that starts and stops
+SCopy app - an "SCopy" tab in the SteamVR dashboard that starts and stops
 sharing and shows how to connect: the address and the PIN.
 
 Runs as a user service that waits for SteamVR. Sharing lives in this process,
@@ -92,7 +92,7 @@ def run_detached(command):
 
 
 class Menu:
-    """The 'FrameCopy' tab in the SteamVR dashboard."""
+    """The 'SCopy' tab in the SteamVR dashboard."""
     WIDTH, HEIGHT = 800, 840
     BAR = (0, 0, 0, 255)
     BG = (8, 17, 31, 255)
@@ -130,7 +130,7 @@ class Menu:
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), self.BG)
         draw = ImageDraw.Draw(img)
         draw.rectangle((0, 0, self.WIDTH, 82), fill=self.BAR)
-        draw.text((self.WIDTH // 2, 42), "FrameCopy", font=self.title_font, fill=BRAND, anchor="mm")
+        draw.text((self.WIDTH // 2, 42), "SCopy", font=self.title_font, fill=BRAND, anchor="mm")
 
         sharing = server.active
         self._button(draw, (60, 100, 740, 200), "Stop sharing" if sharing else "Start sharing", "toggle",
@@ -205,7 +205,7 @@ def run(server):
     overlay = openvr.VROverlay()
     menu = Menu()
 
-    menu_handle, thumb_handle = overlay.createDashboardOverlay(APP_KEY + ".dashboard", "FrameCopy")
+    menu_handle, thumb_handle = overlay.createDashboardOverlay(APP_KEY + ".dashboard", "SCopy")
     overlay.setOverlayWidthInMeters(menu_handle, 1.5)
     overlay.setOverlayInputMethod(menu_handle, openvr.VROverlayInputMethod_Mouse)
     mouse_scale = openvr.HmdVector2_t()
@@ -241,7 +241,7 @@ def run(server):
             if not (source and os.path.isdir(os.path.join(source, ".git"))):
                 status = "Update needs the original git checkout"
             else:
-                status = "Updating FrameCopy... it will restart"
+                status = "Updating SCopy... it will restart"
                 run_detached(f'cd "{source}" && git pull --ff-only && ./install.sh')
         elif action == "forget":
             if confirmed:

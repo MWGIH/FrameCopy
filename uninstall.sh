@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Removes FrameCopy and its settings. Your recordings and the downloaded source folder are left in place.
+# Removes SCopy and its settings. Your recordings and the downloaded source folder are left in place.
 set -euo pipefail
 
 INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/framecopy"
@@ -11,4 +11,4 @@ rm -f "$UNIT"
 systemctl --user daemon-reload
 rm -rf "$INSTALL_DIR" "$CONFIG_DIR"
 
-echo "FrameCopy removed."
+echo "SCopy removed."
