@@ -31,13 +31,23 @@ Running the same line again later updates it.
 
 ## Install on a Steam Deck or Steam Machine
 
-SCopy is a [Decky Loader](https://decky.xyz) plugin there.
+SCopy is a [Decky Loader](https://decky.xyz) plugin there. Install Decky Loader first if you haven't already.
 
-1. Install Decky Loader if you haven't already.
-2. In Decky's settings, turn on **Developer mode**, then open **Developer** and choose **Install plugin from URL**.
-3. Enter `https://github.com/MWGIH/SCopy/releases/download/decky-latest/SCopy.zip`.
+**From the URL (easiest):**
 
-To update, install from the same URL again. You can also download `SCopy.zip` from the [releases page](https://github.com/MWGIH/SCopy/releases) and use **Install plugin from ZIP**.
+1. In Decky's settings, turn on **Developer mode**.
+2. Open **Developer**, choose **Install plugin from URL** and paste this address:
+
+```text
+https://github.com/MWGIH/SCopy/releases/download/decky-latest/SCopy.zip
+```
+
+To update, install from the same URL again.
+
+**If the URL doesn't work, use the zip instead:**
+
+1. Download [SCopy.zip](https://github.com/MWGIH/SCopy/releases/download/decky-latest/SCopy.zip) from the [releases page](https://github.com/MWGIH/SCopy/releases/tag/decky-latest) in the Deck's browser (Desktop Mode), or copy it to the Deck's Downloads folder.
+2. In Decky's **Developer** settings, choose **Install plugin from ZIP** and pick `SCopy.zip`. Don't unzip it first.
 
 To build the zip yourself you need Node.js and pnpm: run `decky/build.sh`, which writes `decky/out/SCopy.zip`. GitHub Actions builds it on every push to `main` and publishes it as the `decky-latest` pre-release.
 

@@ -43,8 +43,14 @@ jobs:
           name: SCopy for Decky (latest from main)
           prerelease: true
           make_latest: false
-          files: decky/out/SCopy.zip
+          body_path: decky/INSTALL.md
+          files: |
+            decky/out/SCopy.zip
+            decky/INSTALL.md
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: decky/out/SCopy.zip
+          body_path: decky/INSTALL.md
+          files: |
+            decky/out/SCopy.zip
+            decky/INSTALL.md
