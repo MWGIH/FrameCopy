@@ -29,6 +29,7 @@ off after IDLE_MINUTES with no requests.
 
 import argparse
 import glob
+import hashlib
 import hmac
 import html
 import json
@@ -63,6 +64,11 @@ MAX_FAILED_PINS = 5
 LOCKOUT_SECONDS = 30.0
 COPY_CHUNK = 1024 * 1024
 COOKIE_NAME = "frame_share"
+# Long-lived cookie for a computer that ticked "Remember this computer".
+DEVICE_COOKIE = "framecopy_device"
+DEVICE_COOKIE_SECONDS = 365 * 24 * 3600
+DEVICES_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+                            "framecopy", "devices.json")
 CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
                          "framecopy", "thumbs")
 MIME_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm",
@@ -122,7 +128,7 @@ def human_size(size):
 
 class ShareServer:
     def __init__(self, recordings_dir=DEFAULT_DIR, port=DEFAULT_PORT, idle_minutes=IDLE_MINUTES,
-                 on_stop=None, steamos_folders=True):
+                 on_stop=None, steamos_folders=True, devices_file=DEVICES_FILE):
         self.recordings_dir = os.path.realpath(os.path.expanduser(recordings_dir))
         # Also share Steam's screenshots and exported clips, ~/Videos and ~/Pictures.
         self.steamos_folders = steamos_folders
@@ -132,6 +138,9 @@ class ShareServer:
         self.on_stop = on_stop
         self.pin = ""
         self._sessions = set()
+        # Remembered computers survive restarts; only hashes of their tokens are kept on disk.
+        self.devices_file = devices_file
+        self._devices_lock = threading.Lock()
         self._failed = {}       # client ip -> (failures, locked_until)
         self._last_request = 0.0
         self._httpd = None
@@ -330,7 +339,7 @@ class ShareServer:
         failures, locked_until = self._failed.get(ip, (0, 0.0))
         if time.monotonic() < locked_until:
             return None
-        if hmac.compare_digest(pin.strip(), self.pin):
+        if self.pin and hmac.compare_digest(pin.strip(), self.pin):
             self._failed.pop(ip, None)
             token = secrets.token_urlsafe(24)
             self._sessions.add(token)
@@ -345,6 +354,58 @@ class ShareServer:
     def locked_out(self, ip):
         return time.monotonic() < self._failed.get(ip, (0, 0.0))[1]
 
+    # --- remembered computers ---
+
+    @staticmethod
+    def _hash(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def _load_devices(self):
+        try:
+            with open(self.devices_file) as f:
+                devices = json.load(f).get("devices", [])
+            return [d for d in devices if isinstance(d, dict) and isinstance(d.get("hash"), str)]
+        except (OSError, ValueError, AttributeError):
+            return []
+
+    def _save_devices(self, devices):
+        os.makedirs(os.path.dirname(self.devices_file), exist_ok=True)
+        tmp = self.devices_file + ".tmp"
+        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            json.dump({"devices": devices}, f, indent=1)
+        os.replace(tmp, self.devices_file)
+
+    def remember_device(self, name):
+        """Returns a new long-lived token for a computer that just entered the right PIN."""
+        token = secrets.token_urlsafe(32)
+        with self._devices_lock:
+            devices = self._load_devices()
+            devices.append({"hash": self._hash(token), "name": name[:120], "added": int(time.time())})
+            self._save_devices(devices)
+        log(f"Remembering a computer ({name[:60]})")
+        return token
+
+    def device_known(self, token):
+        if not token:
+            return False
+        wanted = self._hash(token)
+        with self._devices_lock:
+            return any(hmac.compare_digest(d["hash"], wanted) for d in self._load_devices())
+
+    def forget_device(self, token):
+        wanted = self._hash(token)
+        with self._devices_lock:
+            self._save_devices([d for d in self._load_devices() if d["hash"] != wanted])
+
+    def forget_all_devices(self):
+        with self._devices_lock:
+            self._save_devices([])
+        log("Forgot all remembered computers")
+
+    def device_count(self):
+        with self._devices_lock:
+            return len(self._load_devices())
+
 
 class _Handler(BaseHTTPRequestHandler):
     share = None    # set per server in ShareServer.start()
@@ -356,10 +417,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     # --- plumbing ---
 
+    def _cookie(self, name):
+        try:
+            jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
+        except cookies.CookieError:
+            return ""
+        return jar[name].value if name in jar else ""
+
     def _authed(self):
-        jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
-        token = jar[COOKIE_NAME].value if COOKIE_NAME in jar else ""
-        return token in self.share._sessions
+        return (self._cookie(COOKIE_NAME) in self.share._sessions
+                or self.share.device_known(self._cookie(DEVICE_COOKIE)))
 
     def _send(self, status, body=b"", content_type="text/plain; charset=utf-8", headers=None):
         if isinstance(body, str):
@@ -368,7 +435,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        for key, value in (headers or {}).items():
+        # A list of pairs allows a header twice (two Set-Cookie lines).
+        for key, value in headers.items() if isinstance(headers, dict) else headers or []:
             self.send_header(key, value)
         self.end_headers()
         if self.command != "HEAD":
@@ -378,8 +446,14 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(data), "application/json")
 
     def _read_body(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        return self.rfile.read(min(length, 64 * 1024)) if length else b""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length > 64 * 1024:
+            # Too big to be ours: drop the connection rather than leave the rest unread.
+            self.close_connection = True
+        return self.rfile.read(min(length, 64 * 1024)) if length > 0 else b""
 
     def _route(self):
         self.share._last_request = time.monotonic()
@@ -495,13 +569,19 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         section, name, _ = self._route()
         ip = self.client_address[0]
+        # Read the body before any reply, so a kept-alive connection never sees it as the next request.
+        body = self._read_body()
         if section == "login":
-            form = urllib.parse.parse_qs(self._read_body().decode(errors="replace"))
+            form = urllib.parse.parse_qs(body.decode(errors="replace"))
             token = self.share.check_pin(ip, form.get("pin", [""])[0])
             if token:
-                return self._send(303, "", headers={
-                    "Location": "/",
-                    "Set-Cookie": f"{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict"})
+                headers = [("Location", "/"),
+                           ("Set-Cookie", f"{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict")]
+                if form.get("remember"):
+                    device = self.share.remember_device(self.headers.get("User-Agent", "Unknown browser"))
+                    headers.append(("Set-Cookie", f"{DEVICE_COOKIE}={device}; Path=/; HttpOnly; SameSite=Strict; "
+                                                  f"Max-Age={DEVICE_COOKIE_SECONDS}"))
+                return self._send(303, "", headers=headers)
             error = ("Too many wrong PINs. Wait 30 seconds and try again." if self.share.locked_out(ip)
                      else "Wrong PIN. Check the number shown in the headset.")
             page = PIN_PAGE.replace("{error}", f'<p class="error">{html.escape(error)}</p>')
@@ -513,11 +593,18 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(415, "Expected JSON")
         if section == "api" and name == "delete":
             try:
-                names = json.loads(self._read_body() or b"{}").get("names", [])
+                names = json.loads(body or b"{}").get("names", [])
             except (ValueError, AttributeError):
                 return self._send(400, "Bad request")
             deleted = [n for n in names if isinstance(n, str) and self.share.delete(n)]
             return self._json({"deleted": deleted})
+        if section == "api" and name == "forget":
+            device = self._cookie(DEVICE_COOKIE)
+            if device:
+                self.share.forget_device(device)
+            return self._send(200, "", headers=[
+                ("Set-Cookie", f"{DEVICE_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+                ("Set-Cookie", f"{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0")])
         return self._send(404, "Not found")
 
 
@@ -568,6 +655,8 @@ dialog::backdrop { background:rgba(0,0,0,.8); }
 .pin { max-width:320px; margin:12vh auto; padding:0 16px; text-align:center; }
 .pin input { font-size:32px; letter-spacing:12px; width:100%; text-align:center; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); margin:16px 0; }
 .error { color:var(--danger); }
+.pin .remember { display:flex; gap:8px; align-items:center; justify-content:center; margin:0 0 16px; color:var(--muted); }
+.pin .remember input { width:18px; height:18px; margin:0; }
 """
 
 PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -578,6 +667,7 @@ PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <p>Enter the PIN shown in the headset.</p>
 {error}
 <input name="pin" inputmode="numeric" autocomplete="off" maxlength="4" autofocus required>
+<label class="remember"><input type="checkbox" name="remember" checked> Remember this computer</label>
 <button class="primary" type="submit">Open</button>
 </form></body></html>"""
 
@@ -590,6 +680,7 @@ MAIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <button id="zip" class="primary" disabled>Download selected</button>
 <button id="del" class="danger" disabled>Delete selected</button>
 <button id="refresh">Refresh</button>
+<button id="forget" title="Ask for the PIN again next time on this computer">Forget this computer</button>
 <nav id="filters" class="filters"></nav>
 </header>
 <main><div id="grid" class="grid"></div><p id="empty" class="empty" hidden>Nothing here yet.</p></main>
@@ -685,6 +776,11 @@ document.getElementById("zip").onclick = () => {
 };
 document.getElementById("del").onclick = () => remove([...selected]);
 document.getElementById("refresh").onclick = load;
+document.getElementById("forget").onclick = async () => {
+  if (!confirm("Forget this computer? You'll need the PIN from the headset next time.")) return;
+  await fetch("/api/forget", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+  location.reload();
+};
 load();
 </script></body></html>"""
 

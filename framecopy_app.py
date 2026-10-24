@@ -121,8 +121,8 @@ class Menu:
             text = "…" + text[2:]
         draw.text(xy, text, font=font, **kwargs)
 
-    def render(self, server, recordings, status, confirming):
-        """`confirming` is the action waiting for a second click ("uninstall"), or None."""
+    def render(self, server, recordings, devices, status, confirming):
+        """`confirming` is the action waiting for a second click ("forget" or "uninstall"), or None."""
         self.buttons = []
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), self.BG)
         draw = ImageDraw.Draw(img)
@@ -161,9 +161,11 @@ class Menu:
         if footer:
             draw.text((self.WIDTH // 2, 585), footer, font=self.small_font, fill=GREY, anchor="mm")
 
-        self._button(draw, (60, 690, 395, 760), "Update", "update")
-        self._button(draw, (405, 690, 740, 760), "Confirm?" if confirming == "uninstall" else "Uninstall",
-                     "uninstall", fill=self.DANGER)
+        self._button(draw, (60, 690, 280, 760), "Confirm?" if confirming == "forget" else f"Forget PCs ({devices})",
+                     "forget", font=self.small_font)
+        self._button(draw, (290, 690, 510, 760), "Update", "update", font=self.small_font)
+        self._button(draw, (520, 690, 740, 760), "Confirm?" if confirming == "uninstall" else "Uninstall",
+                     "uninstall", fill=self.DANGER, font=self.small_font)
 
         if status:
             draw.text((self.WIDTH // 2, 800), status, font=self.small_font, fill=YELLOW, anchor="mm")
@@ -209,11 +211,12 @@ def run(server):
     overlay.setOverlayRaw(thumb_handle, to_texture(thumb), thumb.width, thumb.height, 4)
 
     status = ""
-    confirm_action = None  # "uninstall" while waiting for its second click
+    confirm_action = None  # "forget" or "uninstall" while waiting for its second click
     confirm_until = 0.0
     shown = None           # what the tab last drew, to redraw only on change
     next_count = 0.0
     recordings = 0
+    devices = 0
     event = openvr.VREvent_t()
 
     def handle(action):
@@ -236,6 +239,15 @@ def run(server):
             else:
                 status = "Updating FrameCopy... it will restart"
                 run_detached(f'cd "{source}" && git pull --ff-only && ./install.sh')
+        elif action == "forget":
+            if confirmed:
+                server.forget_all_devices()
+                status = "Every computer will need the PIN again"
+            elif server.device_count():
+                confirm_action, confirm_until = "forget", time.monotonic() + CONFIRM_SECONDS
+                status = "Click again to forget every remembered computer"
+            else:
+                status = "No computers are remembered"
         elif action == "uninstall":
             if confirmed:
                 status = "Uninstalling..."
@@ -268,13 +280,14 @@ def run(server):
         if now >= next_count:
             next_count = now + COUNT_SECONDS
             recordings = len(server.recordings())
+            devices = server.device_count()
 
         # Sharing can stop by itself (idle), so the tab follows the server, not the last click.
-        state = (server.active, server.pin, tuple(server.urls) if server.active else (), recordings,
+        state = (server.active, server.pin, tuple(server.urls) if server.active else (), recordings, devices,
                  status, confirm_action)
         if state != shown:
             shown = state
-            img = menu.render(server, recordings, status, confirm_action)
+            img = menu.render(server, recordings, devices, status, confirm_action)
             overlay.setOverlayRaw(menu_handle, to_texture(img), img.width, img.height, 4)
 
         time.sleep(TICK_SECONDS)

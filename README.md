@@ -30,11 +30,13 @@ Running the same line again later updates it.
 Open the **SteamVR dashboard** and select the **FrameCopy** tab.
 
 1. Press **Start sharing**. The tab shows an address and a 4-digit PIN.
-2. On your PC or phone, open the address in a browser and enter the PIN.
+2. On your PC or phone, open the address in a browser and enter the PIN. Leave **Remember this computer** ticked and that browser won't ask for the PIN again, even after FrameCopy restarts.
 3. Click a video to play it or a picture to view it, download one, tick several to download them as one zip, or delete them (it asks first).
 4. Press **Stop sharing** when you're done. It also stops by itself after 30 minutes without use.
 
 Sharing keeps going if you leave VR, until you stop it or it times out.
+
+To make a computer ask for the PIN again, press **Forget this computer** on the page, or **Forget PCs** in the tab to forget them all (click twice). A computer is remembered per address, so the `.local` address and the IP address each ask once.
 
 The tab also has **Update**, which downloads the latest FrameCopy, and **Uninstall** (click twice). Uninstalling never touches your recordings.
 
