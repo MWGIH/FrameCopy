@@ -31,8 +31,10 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -56,8 +58,12 @@ MIME_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/w
               ".mov": "video/quicktime"}
 
 
+# Where log lines go; --json moves them to stderr so stdout carries only the JSON line.
+LOG_STREAM = sys.stdout
+
+
 def log(message):
-    print(message, flush=True)
+    print(message, file=LOG_STREAM, flush=True)
 
 
 def lan_ip():
@@ -549,16 +555,33 @@ def main():
     parser = argparse.ArgumentParser(description="Share recordings with browsers on the same network.")
     parser.add_argument("--dir", default=DEFAULT_DIR, help=f"recordings folder (default {DEFAULT_DIR})")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"port (default {DEFAULT_PORT})")
+    parser.add_argument("--json", action="store_true",
+                        help="for apps that run this as a child process: print one JSON line "
+                             "({urls, pin, port}) once listening, log to stderr, exit 0 when sharing stops")
     args = parser.parse_args()
+    global LOG_STREAM
+    if args.json:
+        LOG_STREAM = sys.stderr
     stopped = threading.Event()
     server = ShareServer(args.dir, args.port, on_stop=stopped.set)
-    server.start()
-    print(f"\nOpen one of these on your PC:\n  " + "\n  ".join(server.urls) + f"\nPIN: {server.pin}\n"
-          "Press Ctrl+C to stop.", flush=True)
     try:
-        stopped.wait()
+        server.start()
+    except OSError as e:
+        print(f"Can't share on port {args.port}: {e.strerror or e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, lambda *_: stopped.set())
+    if args.json:
+        print(json.dumps({"urls": server.urls, "pin": server.pin, "port": server.port}), flush=True)
+    else:
+        print(f"\nOpen one of these on your PC:\n  " + "\n  ".join(server.urls) + f"\nPIN: {server.pin}\n"
+              "Press Ctrl+C to stop.", flush=True)
+    try:
+        while not stopped.wait(1):
+            pass
     except KeyboardInterrupt:
-        server.stop()
+        pass
+    server.stop()
+    sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ Press Ctrl+C in Konsole to stop sharing. It also stops by itself after 30 minute
 |---|---|
 | `--dir FOLDER` | Folder to share (default `~/Videos/framecorder`). Subfolders one level down, such as `clips`, are included |
 | `--port N` | Port to listen on (default 8642) |
+| `--json` | For apps that run FrameCopy as a child process: prints one line `{"urls": [...], "pin": "1234", "port": 8642}` once listening, logs to stderr, exits 0 when sharing stops (idle, SIGTERM or Ctrl+C), and exits 1 if the port is taken |
 
 ## Good to know
 
