@@ -21,8 +21,8 @@ Running the same line again later updates it.
 
 Open the **SteamVR dashboard** and select the **FrameCopy** tab.
 
-1. Press **Start sharing**. The tab shows an address, a 4-digit PIN and a QR code.
-2. On your PC, open the address in a browser and enter the PIN. On a phone you can scan the QR code instead.
+1. Press **Start sharing**. The tab shows an address and a 4-digit PIN.
+2. On your PC or phone, open the address in a browser and enter the PIN.
 3. Click a recording to play it, download one, tick several to download them as one zip, or delete them (it asks first).
 4. Press **Stop sharing** when you're done. It also stops by itself after 30 minutes without use.
 

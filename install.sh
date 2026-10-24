@@ -29,7 +29,7 @@ echo "$SRC_DIR" > "$CONFIG_DIR/source_dir"
 echo "==> Setting up Python environment"
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
 "$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet "openvr==$PYOPENVR_VERSION" "pillow>=10.1" "qrcode>=7.4"
+"$VENV/bin/pip" install --quiet "openvr==$PYOPENVR_VERSION" "pillow>=10.1"
 
 # pyopenvr only bundles an x86_64 loader library; swap in Valve's own build for this CPU.
 echo "==> Fetching Valve's OpenVR loader ($OPENVR_ARCH)"

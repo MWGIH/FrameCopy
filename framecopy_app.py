@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 FrameCopy app - a "FrameCopy" tab in the SteamVR dashboard that starts and stops
-sharing and shows how to connect: the address, the PIN and a QR code to scan
-with a phone.
+sharing and shows how to connect: the address and the PIN.
 
 Runs as a user service that waits for SteamVR. Sharing lives in this process,
 not in SteamVR, so it keeps going if SteamVR quits and stops on its own after
@@ -19,7 +18,6 @@ import sys
 import time
 
 import openvr
-import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
 from framecopy import DEFAULT_DIR, DEFAULT_PORT, IDLE_MINUTES, ShareServer
@@ -90,14 +88,6 @@ def run_detached(command):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def qr_image(text, size):
-    qr = qrcode.QRCode(border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
-    qr.add_data(text)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").get_image().convert("RGBA")
-    return img.resize((size, size), Image.NEAREST)
-
-
 class Menu:
     """The 'FrameCopy' tab in the SteamVR dashboard."""
     WIDTH, HEIGHT = 800, 840
@@ -143,14 +133,16 @@ class Menu:
 
         if sharing:
             ip_url, local_url = server.urls[1], server.urls[0]
+            cx = self.WIDTH // 2
+            draw.text((cx, 245), "In a browser on your PC or phone, open", font=self.small_font, fill=GREY, anchor="mm")
             # The IP address works on every device; .local names don't resolve everywhere.
-            img.alpha_composite(qr_image(ip_url, 260), (60, 230))
-            draw.text((350, 250), "On your PC or phone, open", font=self.small_font, fill=GREY)
-            self._text(draw, (350, 288), ip_url.removeprefix("http://"), (40, 34, 28, 24), 420, fill=WHITE)
-            self._text(draw, (350, 336), "or " + local_url.removeprefix("http://"), (26, 22, 18), 420, fill=GREY)
-            draw.text((350, 392), "PIN", font=self.small_font, fill=GREY)
-            draw.text((420, 372), server.pin, font=self.big_font, fill=GREEN)
-            draw.text((350, 450), "Or scan the code with a phone", font=self.small_font, fill=GREY)
+            self._text(draw, (cx, 305), ip_url, (52, 44, 36, 30), 680, fill=WHITE, anchor="mm")
+            self._text(draw, (cx, 360), "or " + local_url, (28, 24, 20), 680, fill=GREY, anchor="mm")
+            pin_font = load_font(80)
+            label_width = draw.textlength("PIN  ", font=self.font)
+            x = cx - (label_width + draw.textlength(server.pin, font=pin_font)) / 2
+            draw.text((x, 445), "PIN", font=self.font, fill=GREY, anchor="lm")
+            draw.text((x + label_width, 445), server.pin, font=pin_font, fill=GREEN, anchor="lm")
             footer = f"Stops by itself after {IDLE_MINUTES} minutes without use"
         else:
             draw.text((self.WIDTH // 2, 330), "Turn on sharing to play, download", font=self.font,
