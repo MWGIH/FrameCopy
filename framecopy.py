@@ -689,7 +689,7 @@ class _TouchingWriter:
 
 STYLE = """
 /* Gaming On Steam colours: black bar, navy page, blue logo, cyan accent, navy-to-purple cards. */
-:root { color-scheme: dark; --bar:#000000; --bg:#10203a; --card:#0b1628; --card-end:#241a4a; --raised:#1a2d4d; --line:#22385c; --text:#ffffff; --muted:#9fb3c8; --brand:#189dff; --accent:#03bfff; --on-accent:#001526; --danger:#ff4d5e; }
+:root { color-scheme: dark; --bar:#000000; --bg:#08111f; --card:#0b1628; --card-end:#241a4a; --raised:#1a2d4d; --line:#22385c; --text:#ffffff; --muted:#9fb3c8; --brand:#189dff; --accent:#03bfff; --on-accent:#001526; --danger:#ff4d5e; }
 * { box-sizing: border-box; }
 body { margin:0; font:15px/1.4 Rubik, system-ui, sans-serif; background:var(--bg); color:var(--text); accent-color:var(--accent); }
 header { position:sticky; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 16px; background:var(--bar); }

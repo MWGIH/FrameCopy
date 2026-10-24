@@ -95,7 +95,7 @@ class Menu:
     """The 'FrameCopy' tab in the SteamVR dashboard."""
     WIDTH, HEIGHT = 800, 840
     BAR = (0, 0, 0, 255)
-    BG = (16, 32, 58, 255)
+    BG = (8, 17, 31, 255)
     BUTTON = (26, 45, 77, 255)
     ON = BRAND
     OFF = (34, 56, 92, 255)
