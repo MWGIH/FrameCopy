@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installs (or updates) FrameCopy for the current user. No root needed.
-# Start and stop sharing from the "FrameCopy" tab of the SteamVR dashboard once installed.
+# Installs (or updates) SCopy for the current user. No root needed.
+# Start and stop sharing from the "SCopy" tab of the SteamVR dashboard once installed.
 set -euo pipefail
 
 PYOPENVR_VERSION="2.12.1401"
@@ -41,7 +41,7 @@ curl -fsSL -o "$PKG_DIR/libopenvr_api_64.so" \
 echo "==> Installing background service"
 cat > "$UNIT_DIR/framecopy.service" <<UNIT
 [Unit]
-Description=FrameCopy (share recordings with browsers on your network)
+Description=SCopy (share recordings with browsers on your network)
 
 [Service]
 ExecStart=$VENV/bin/python $INSTALL_DIR/framecopy_app.py
@@ -56,5 +56,5 @@ systemctl --user enable framecopy.service
 systemctl --user restart framecopy.service
 
 echo
-echo "Done. Put on the headset, open the SteamVR dashboard and pick the 'FrameCopy' tab"
+echo "Done. Put on the headset, open the SteamVR dashboard and pick the 'SCopy' tab"
 echo "to start or stop sharing and see the address and PIN."
