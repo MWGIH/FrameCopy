@@ -43,6 +43,7 @@ GREY = (159, 179, 200, 255)
 BRAND = (24, 157, 255, 255)
 ACCENT = (3, 191, 255, 255)
 YELLOW = (255, 210, 60, 255)
+ICON_SCALE = 1.15
 
 
 def log(message):
@@ -167,13 +168,20 @@ class Menu:
 
     @staticmethod
     def thumbnail(size=256):
-        """The SCopy icon (same shapes as assets/icon.svg): a cyan outline sheet behind a blue one with an S."""
+        """The SCopy icon (same shapes as assets/icon.svg): a cyan outline sheet behind a blue one with an S,
+        on a transparent background so it sits on whatever is behind it."""
         k = 4   # draw large and scale down for smooth edges
-        img = Image.new("RGBA", (256 * k, 256 * k), Menu.BAR)
+
+        def at(*values):
+            # The shapes are laid out on a 256 grid and drawn 15% larger around its centre.
+            return [round((128 + (v - 128) * ICON_SCALE) * k) for v in values]
+
+        img = Image.new("RGBA", (256 * k, 256 * k), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-        draw.rounded_rectangle((44 * k, 28 * k, 168 * k, 180 * k), radius=22 * k, outline=ACCENT, width=14 * k)
-        draw.rounded_rectangle((88 * k, 76 * k, 212 * k, 228 * k), radius=22 * k, fill=BRAND)
-        draw.text((150 * k, 154 * k), "S", font=load_font(120 * k), fill=WHITE, anchor="mm")
+        draw.rounded_rectangle(at(44, 28, 168, 180), radius=at(150)[0] - at(128)[0], outline=ACCENT,
+                               width=round(14 * ICON_SCALE * k))
+        draw.rounded_rectangle(at(88, 76, 212, 228), radius=at(150)[0] - at(128)[0], fill=BRAND)
+        draw.text(at(150, 154), "S", font=load_font(round(120 * ICON_SCALE * k)), fill=WHITE, anchor="mm")
         return img.resize((size, size), Image.LANCZOS)
 
 

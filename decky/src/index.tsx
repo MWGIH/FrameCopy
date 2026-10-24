@@ -41,8 +41,10 @@ function SCopyIcon() {
         <text x="150" y="154" dominantBaseline="central" textAnchor="middle"
               fontFamily="sans-serif" fontWeight="bold" fontSize="120" fill="black">S</text>
       </mask>
-      <rect x="51" y="35" width="110" height="138" rx="15" fill="none" stroke="currentColor" strokeWidth="14" />
-      <rect x="88" y="76" width="124" height="152" rx="22" mask="url(#scopy-s)" />
+      <g transform="translate(128 128) scale(1.15) translate(-128 -128)">
+        <rect x="51" y="35" width="110" height="138" rx="15" fill="none" stroke="currentColor" strokeWidth="14" />
+        <rect x="88" y="76" width="124" height="152" rx="22" mask="url(#scopy-s)" />
+      </g>
     </svg>
   );
 }
