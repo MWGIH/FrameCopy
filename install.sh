@@ -21,6 +21,7 @@ esac
 echo "==> Installing to $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$UNIT_DIR"
 install -m 755 "$SRC_DIR/framecopy.py" "$INSTALL_DIR/framecopy.py"
+install -m 644 "$SRC_DIR/steam_recordings.py" "$INSTALL_DIR/steam_recordings.py"
 install -m 755 "$SRC_DIR/framecopy_app.py" "$INSTALL_DIR/framecopy_app.py"
 install -m 755 "$SRC_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 # Lets the tab's Update button find this checkout.

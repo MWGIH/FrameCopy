@@ -6,7 +6,7 @@ It shares:
 
 - recordings from SFRecorder (`~/Videos/SFRecorder`)
 - Steam screenshots, named by game
-- finished video files in Steam Game Recording's folder
+- Steam Game Recording's background recordings and clips, turned into MP4s you can play and download (see below)
 - `~/Videos` and `~/Pictures`, one folder level down
 - older recordings from [framecorder](https://github.com/coah80/framecorder) (`~/Videos/framecorder`, including `clips`)
 
@@ -76,7 +76,7 @@ It prints the address and PIN; press Ctrl+C to stop.
 ## Good to know
 
 - Only videos (`.mp4`, `.mkv`, `.webm`, `.mov`) and pictures (`.jpg`, `.png`, `.webp`) are shown. Recordings still being written (`.part` files) appear once they finish.
-- Steam Game Recording saves clips as many small pieces, not one video file. Export a clip from Steam first and it will show up.
+- Steam Game Recording saves each recording as many small pieces (`.m4s` chunks). FrameCopy joins them into one MP4 as you play or download it, without ffmpeg and without using extra space. It finds them in Steam's default folder and in the recording folder chosen in Steam's settings. A recording still being made appears 30 seconds after it stops.
 - Video thumbnails need `ffmpeg`. Without it the page still works, it just shows no video previews.
 - If the `.local` address doesn't open, use the one with the number (IP address).
 - It uses plain HTTP and a PIN, which is fine on your home network. Don't turn it on over public Wi-Fi.

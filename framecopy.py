@@ -39,6 +39,7 @@ import secrets
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -48,6 +49,9 @@ import zipfile
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # steam_recordings.py sits next to this file
+from steam_recordings import DashMovie, UnsupportedRecording, find_sessions  # noqa: E402
+
 DEFAULT_DIR = "~/Videos/SFRecorder"
 FRAMECORDER_DIR = "~/Videos/framecorder"
 DEFAULT_PORT = 8642
@@ -56,6 +60,8 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 STEAM_SCREENSHOTS_APP = "760"   # Steam keeps screenshots under userdata/<user>/760/remote/<game>/screenshots
 LIST_CACHE_SECONDS = 3.0
+# A Steam recording whose chunks changed this recently is still being recorded.
+STEAM_SETTLE_SECONDS = 30.0
 # Images up to this size are their own thumbnail; bigger ones get a placeholder.
 MAX_IMAGE_THUMB_BYTES = 8 * 1024 * 1024
 # A file written to within this many seconds is treated as still recording.
@@ -147,6 +153,7 @@ class ShareServer:
         self._thumb_lock = threading.Lock()
         self._lock = threading.Lock()
         self._list_lock = threading.Lock()
+        self._movies = {}       # Steam recording session folder -> DashMovie
         self._listing = ([], {}, 0.0)   # (files, name -> (path, file), monotonic time)
 
     @property
@@ -245,10 +252,7 @@ class ShareServer:
                     user = os.path.relpath(folder, userdata).split(os.sep)[0]
                     self._scan(found, f"steam-screenshots/{user}/{app_id}", "Steam screenshots", folder, 0, False,
                                group=games.get(app_id, f"App {app_id}"))
-                # Steam Game Recording keeps clips as video segments; only finished files (exports) are listed.
-                for user in glob.glob(os.path.join(userdata, "*", "gamerecordings")):
-                    self._scan(found, "steam-clips/" + os.path.basename(os.path.dirname(user)), "Steam clips",
-                               user, 4, False)
+                self._steam_recordings(found, steam, games)
             self._scan(found, "videos", "Videos", os.path.expanduser("~/Videos"), 2, True)
             self._scan(found, "pictures", "Pictures", os.path.expanduser("~/Pictures"), 2, True)
             framecorder = os.path.realpath(os.path.expanduser(FRAMECORDER_DIR))
@@ -256,6 +260,52 @@ class ShareServer:
                 self._scan(found, "framecorder", "framecorder", framecorder, 1, True)
         found.sort(key=lambda f: f[1]["mtime"], reverse=True)
         return [f for _, f in found], {f["name"]: (path, f) for path, f in found}
+
+    def _steam_recordings(self, found, steam, games):
+        """Steam's background recordings and clips, each served as one MP4 joined from its chunks."""
+        now = time.time()
+        for session in find_sessions(steam):
+            if now - session["mtime"] < STEAM_SETTLE_SECONDS:
+                continue
+            game = games.get(session["app_id"], f"App {session['app_id']}")
+            d, t = session["date"], session["time"]
+            when = f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}.{t[2:4]}.{t[4:]}"
+            part = f" part {session['part']}" if session["parts"] > 1 else ""
+            file = re.sub(r'[\\/:*?"<>|]', "-", f"{game} {when}{part}.mp4")
+            name = f"steam-recordings/{session['user']}/{session['folder']}/{session['part']}.mp4"
+            label = "Steam clips" if session["kind"] == "clip" else "Steam recordings"
+            found.append((session["session_dir"], {
+                "name": name, "file": file, "source": "steam-recordings", "label": label, "group": game,
+                "kind": "video", "deletable": False, "virtual": True, "size": session["size"],
+                "size_text": human_size(session["size"]), "mtime": session["mtime"]}))
+
+    def open_range(self, name):
+        """(info, size, read) for a listed file, where read(start, end) yields its bytes; or None."""
+        path, info = self.lookup(name)
+        if not path:
+            return None
+        if info.get("virtual"):
+            with self._list_lock:
+                movie = self._movies.setdefault(path, DashMovie(path))
+            try:
+                size = movie.prepare()
+            except (UnsupportedRecording, OSError, struct.error) as e:
+                log(f"Can't join Steam recording {name}: {e}")
+                return None
+            return info, size, movie.read
+
+        def read(start, end):
+            with open(path, "rb") as f:
+                f.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    chunk = f.read(min(COPY_CHUNK, remaining))
+                    if not chunk:
+                        break
+                    yield chunk
+                    remaining -= len(chunk)
+
+        return info, os.path.getsize(path), read
 
     def _current(self):
         with self._list_lock:
@@ -298,12 +348,22 @@ class ShareServer:
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return None
-        st = os.stat(path)
-        thumb = os.path.join(CACHE_DIR, f"{self._thumb_prefix(name)}{int(st.st_mtime)}.jpg")
+        thumb = os.path.join(CACHE_DIR, f"{self._thumb_prefix(name)}{int(info['mtime'])}.jpg")
         with self._thumb_lock:
             if not os.path.exists(thumb):
                 os.makedirs(CACHE_DIR, exist_ok=True)
                 tmp = thumb + ".tmp.jpg"
+                if info.get("virtual"):
+                    # The first chunk of a Steam recording is enough for a still.
+                    with self._list_lock:
+                        movie = self._movies.setdefault(path, DashMovie(path))
+                    try:
+                        frames = movie.first_video_frames()
+                    except (UnsupportedRecording, OSError):
+                        return None
+                    path = thumb + ".src.mp4"
+                    with open(path, "wb") as f:
+                        f.write(frames)
                 # 1 s in skips a black first frame; fall back to the start for very short clips.
                 for seek in ("1", "0"):
                     result = subprocess.run(
@@ -313,6 +373,8 @@ class ShareServer:
                     if result.returncode == 0 and os.path.exists(tmp):
                         os.replace(tmp, thumb)
                         break
+                if info.get("virtual") and os.path.exists(path):
+                    os.remove(path)
             if not os.path.exists(thumb):
                 return None
         with open(thumb, "rb") as f:
@@ -489,10 +551,10 @@ class _Handler(BaseHTTPRequestHandler):
         return self._send(404, "Not found")
 
     def _send_file(self, name, download):
-        path = self.share.path_for(name)
-        if not path:
+        opened = self.share.open_range(name)
+        if not opened:
             return self._send(404, "Not found")
-        size = os.path.getsize(path)
+        info, size, read = opened
         start, end = 0, size - 1
         status = 200
         byte_range = self.headers.get("Range", "")
@@ -511,42 +573,39 @@ class _Handler(BaseHTTPRequestHandler):
             status = 206
         disposition = "attachment" if download else "inline"
         self.send_response(status)
-        self.send_header("Content-Type", MIME_TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream"))
+        self.send_header("Content-Type", MIME_TYPES.get(os.path.splitext(info["file"])[1].lower(), "application/octet-stream"))
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{urllib.parse.quote(os.path.basename(name))}")
+        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{urllib.parse.quote(info['file'])}")
         if status == 206:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
         if self.command == "HEAD":
             return
-        with open(path, "rb") as f:
-            f.seek(start)
-            remaining = end - start + 1
-            try:
-                while remaining > 0:
-                    chunk = f.read(min(COPY_CHUNK, remaining))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    remaining -= len(chunk)
-                    self.share._last_request = time.monotonic()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+        try:
+            for chunk in read(start, end):
+                self.wfile.write(chunk)
+                self.share._last_request = time.monotonic()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except (UnsupportedRecording, OSError) as e:
+            # Headers are sent, so all that's left is to drop the connection.
+            log(f"Stopped sending {name}: {e}")
+            self.close_connection = True
 
     def _send_zip(self, names):
-        found = [self.share.lookup(n) for n in names]
-        if not found or any(path is None for path, _ in found):
+        opened = [self.share.open_range(n) for n in names]
+        if not opened or any(o is None for o in opened):
             return self._send(404, "Not found")
         # Inside the zip, files are sorted into readable folders: "Steam screenshots/Portal 2/x.jpg".
-        paths, used = [], set()
-        for path, info in found:
+        entries, used = [], set()
+        for info, size, read in opened:
             stem, ext = os.path.splitext("/".join(p for p in (info["label"], info["group"], info["file"]) if p))
             arcname, n = stem + ext, 2
             while arcname in used:
                 arcname, n = f"{stem}-{n}{ext}", n + 1
             used.add(arcname)
-            paths.append((arcname, path))
+            entries.append((arcname, info, size, read))
         # Video doesn't compress further, so files are stored as-is and streamed; the size isn't
         # known up front, so the connection closes at the end instead.
         self.send_response(200)
@@ -559,10 +618,16 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             with zipfile.ZipFile(_TouchingWriter(self.wfile, self.share), "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
-                for name, path in paths:
-                    zf.write(path, arcname=name)
+                for arcname, info, size, read in entries:
+                    zinfo = zipfile.ZipInfo(arcname, time.localtime(max(info["mtime"], 315532800))[:6])
+                    zinfo.file_size = size
+                    with zf.open(zinfo, "w", force_zip64=size > 0x7FFFFFFF) as out:
+                        for chunk in read(0, size - 1):
+                            out.write(chunk)
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except (UnsupportedRecording, OSError) as e:
+            log(f"Stopped sending the zip: {e}")
 
     # --- POST ---
 
@@ -699,7 +764,7 @@ function updateButtons() {
   document.getElementById("zip").textContent = selected.size ? `Download selected (${selected.size})` : "Download selected";
 }
 function render() {
-  const order = ["Recordings", "Steam screenshots", "Steam clips", "Videos", "Pictures", "framecorder"];
+  const order = ["Recordings", "Steam screenshots", "Steam recordings", "Steam clips", "Videos", "Pictures", "framecorder"];
   const labels = [...new Set(files.map(f => f.label))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
   if (filter !== "All" && !labels.includes(filter)) filter = "All";
   document.getElementById("filters").innerHTML = labels.length > 1 ? ["All", ...labels].map(l => {
