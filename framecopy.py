@@ -688,18 +688,20 @@ class _TouchingWriter:
 
 
 STYLE = """
-:root { color-scheme: dark; --bg:#111418; --card:#1b2027; --line:#2b323c; --text:#e8ecf1; --muted:#9aa4b1; --accent:#4fa3ff; --danger:#ff6b6b; }
+/* Gaming On Steam colours: black bar, navy page, blue logo, cyan accent, navy-to-purple cards. */
+:root { color-scheme: dark; --bar:#000000; --bg:#10203a; --card:#0b1628; --card-end:#241a4a; --raised:#1a2d4d; --line:#22385c; --text:#ffffff; --muted:#9fb3c8; --brand:#189dff; --accent:#03bfff; --on-accent:#001526; --danger:#ff4d5e; }
 * { box-sizing: border-box; }
-body { margin:0; font:15px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--text); }
-header { position:sticky; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 16px; background:var(--bg); border-bottom:1px solid var(--line); }
-h1 { font-size:18px; margin:0 auto 0 0; }
-button, .button { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; text-decoration:none; }
-button.primary { background:var(--accent); border-color:var(--accent); color:#04121f; }
+body { margin:0; font:15px/1.4 Rubik, system-ui, sans-serif; background:var(--bg); color:var(--text); accent-color:var(--accent); }
+header { position:sticky; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 16px; background:var(--bar); }
+h1 { font-size:20px; font-weight:700; letter-spacing:.5px; color:var(--brand); margin:0 auto 0 0; }
+button, .button { font:inherit; font-weight:500; padding:8px 14px; border-radius:8px; border:1px solid transparent; background:var(--raised); color:var(--text); cursor:pointer; text-decoration:none; }
+button:not(:disabled):hover, .button:hover { border-color:var(--brand); }
+button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 button.danger { color:var(--danger); }
 button:disabled { opacity:.4; cursor:default; }
 main { padding:16px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:14px; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.card { background:linear-gradient(180deg, var(--card) 40%, var(--card-end)); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
 .card.selected { outline:2px solid var(--accent); }
 .thumb { position:relative; aspect-ratio:16/9; background:#000 center/cover no-repeat; cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--muted); }
 .thumb input { position:absolute; top:8px; left:8px; width:20px; height:20px; }
@@ -714,11 +716,13 @@ dialog video, dialog img { display:block; max-width:96vw; max-height:85vh; }
 dialog [hidden] { display:none; }
 .filters { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; }
 .filters:empty { display:none; }
-.chip { padding:4px 12px; border-radius:999px; font-size:14px; }
-.chip.on { background:var(--accent); border-color:var(--accent); color:#04121f; }
+.chip { padding:5px 14px; border-radius:999px; font-size:14px; color:var(--muted); }
+.chip.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 dialog::backdrop { background:rgba(0,0,0,.8); }
 .pin { max-width:320px; margin:12vh auto; padding:0 16px; text-align:center; }
+.pin h1 { margin:0; font-size:26px; }
 .pin input { font-size:32px; letter-spacing:12px; width:100%; text-align:center; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); margin:16px 0; }
+.pin input:focus { outline:none; border-color:var(--accent); }
 .error { color:var(--danger); }
 .pin .remember { display:flex; gap:8px; align-items:center; justify-content:center; margin:0 0 16px; color:var(--muted); }
 .pin .remember input { width:18px; height:18px; margin:0; }

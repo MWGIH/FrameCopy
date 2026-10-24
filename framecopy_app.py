@@ -40,9 +40,11 @@ FONT_CANDIDATES = [
     "/usr/share/fonts/TTF/LiberationSans-Bold.ttf",
 ]
 
+# Gaming On Steam colours.
 WHITE = (255, 255, 255, 255)
-GREY = (170, 170, 170, 255)
-GREEN = (80, 230, 110, 255)
+GREY = (159, 179, 200, 255)
+BRAND = (24, 157, 255, 255)
+ACCENT = (3, 191, 255, 255)
 YELLOW = (255, 210, 60, 255)
 
 
@@ -92,11 +94,12 @@ def run_detached(command):
 class Menu:
     """The 'FrameCopy' tab in the SteamVR dashboard."""
     WIDTH, HEIGHT = 800, 840
-    BG = (24, 26, 32, 255)
-    BUTTON = (58, 62, 74, 255)
-    ON = (40, 170, 80, 255)
-    OFF = (70, 74, 88, 255)
-    DANGER = (150, 50, 50, 255)
+    BAR = (0, 0, 0, 255)
+    BG = (16, 32, 58, 255)
+    BUTTON = (26, 45, 77, 255)
+    ON = BRAND
+    OFF = (34, 56, 92, 255)
+    DANGER = (200, 40, 60, 255)
 
     def __init__(self):
         self.title_font = load_font(52)
@@ -126,7 +129,8 @@ class Menu:
         self.buttons = []
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), self.BG)
         draw = ImageDraw.Draw(img)
-        draw.text((self.WIDTH // 2, 50), "FrameCopy", font=self.title_font, fill=WHITE, anchor="mm")
+        draw.rectangle((0, 0, self.WIDTH, 82), fill=self.BAR)
+        draw.text((self.WIDTH // 2, 42), "FrameCopy", font=self.title_font, fill=BRAND, anchor="mm")
 
         sharing = server.active
         self._button(draw, (60, 100, 740, 200), "Stop sharing" if sharing else "Start sharing", "toggle",
@@ -143,7 +147,7 @@ class Menu:
             label_width = draw.textlength("PIN  ", font=self.font)
             x = cx - (label_width + draw.textlength(server.pin, font=pin_font)) / 2
             draw.text((x, 445), "PIN", font=self.font, fill=GREY, anchor="lm")
-            draw.text((x + label_width, 445), server.pin, font=pin_font, fill=GREEN, anchor="lm")
+            draw.text((x + label_width, 445), server.pin, font=pin_font, fill=ACCENT, anchor="lm")
             footer = f"Stops by itself after {IDLE_MINUTES} minutes without use"
         else:
             draw.text((self.WIDTH // 2, 330), "Turn on sharing to play, download", font=self.font,
@@ -179,9 +183,9 @@ class Menu:
 
     @staticmethod
     def thumbnail():
-        img = Image.new("RGBA", (256, 256), Menu.BG)
+        img = Image.new("RGBA", (256, 256), Menu.BAR)
         draw = ImageDraw.Draw(img)
-        draw.text((128, 128), "COPY", font=load_font(60), fill=GREEN, anchor="mm")
+        draw.text((128, 128), "COPY", font=load_font(60), fill=BRAND, anchor="mm")
         return img
 
 
