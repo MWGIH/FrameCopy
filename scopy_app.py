@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SCopy app - a "SCopy" tab in the SteamVR dashboard that starts and stops
+SCopy app - an "SCopy" tab in the SteamVR dashboard that starts and stops
 sharing and shows how to connect: the address and the PIN.
 
 Runs as a user service that waits for SteamVR. Sharing lives in this process,
