@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 FrameCopy - a small web page that lets any browser on the same network
-play, download and delete the Steam Frame's recordings.
+play, download and delete the Steam Frame's recordings, screenshots and videos.
 
-Python standard library only. The recorder's dashboard tab turns it on and off:
+Python standard library only. The FrameCopy dashboard tab turns it on and off:
 
     server = ShareServer("~/Videos/framecorder")
     server.start()
@@ -17,18 +17,23 @@ It can also be run by hand from Konsole for testing:
 
 Recordings in the folder and in its subfolders one level down (such as clips/)
 are listed. Files still being written end in .part and are left out until the
-recorder renames them.
+recorder renames them. Unless --only-dir is given, the usual SteamOS media
+folders are listed too: Steam's screenshots (named by game), finished files in
+Steam Game Recording's folder, ~/Videos and ~/Pictures. Steam's own folders are
+read-only here; files can be deleted from the others.
 
 Safety: it only listens while sharing is on, asks for a 4-digit PIN once per
-browser, only serves video files inside the recordings folder, and turns itself
+browser, only serves the video and image files it lists, and turns itself
 off after IDLE_MINUTES with no requests.
 """
 
 import argparse
+import glob
 import hmac
 import html
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -46,6 +51,11 @@ DEFAULT_DIR = "~/Videos/framecorder"
 DEFAULT_PORT = 8642
 IDLE_MINUTES = 30
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+STEAM_SCREENSHOTS_APP = "760"   # Steam keeps screenshots under userdata/<user>/760/remote/<game>/screenshots
+LIST_CACHE_SECONDS = 3.0
+# Images up to this size are their own thumbnail; bigger ones get a placeholder.
+MAX_IMAGE_THUMB_BYTES = 8 * 1024 * 1024
 # A file written to within this many seconds is treated as still recording.
 SETTLE_SECONDS = 5.0
 MAX_FAILED_PINS = 5
@@ -53,9 +63,10 @@ LOCKOUT_SECONDS = 30.0
 COPY_CHUNK = 1024 * 1024
 COOKIE_NAME = "frame_share"
 CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
-                         "frame-fps-overlay", "thumbs")
+                         "framecopy", "thumbs")
 MIME_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm",
-              ".mov": "video/quicktime"}
+              ".mov": "video/quicktime", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+              ".webp": "image/webp"}
 
 
 # Where log lines go; --json moves them to stderr so stdout carries only the JSON line.
@@ -76,6 +87,31 @@ def lan_ip():
             return "127.0.0.1"
 
 
+def steam_dir():
+    """Steam's data folder: ~/.steam/steam points at it on SteamOS."""
+    for candidate in ("~/.steam/steam", "~/.local/share/Steam"):
+        path = os.path.realpath(os.path.expanduser(candidate))
+        if os.path.isdir(os.path.join(path, "userdata")):
+            return path
+    return None
+
+
+def steam_game_names(steam):
+    """App id -> game name, from the installed games' manifests."""
+    names = {}
+    for manifest in glob.glob(os.path.join(steam, "steamapps", "appmanifest_*.acf")):
+        try:
+            with open(manifest, errors="replace") as f:
+                text = f.read(4096)
+        except OSError:
+            continue
+        app_id = re.search(r'"appid"\s+"(\d+)"', text)
+        name = re.search(r'"name"\s+"([^"]*)"', text)
+        if app_id and name:
+            names[app_id.group(1)] = name.group(1)
+    return names
+
+
 def human_size(size):
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
@@ -85,8 +121,10 @@ def human_size(size):
 
 class ShareServer:
     def __init__(self, recordings_dir=DEFAULT_DIR, port=DEFAULT_PORT, idle_minutes=IDLE_MINUTES,
-                 on_stop=None):
+                 on_stop=None, steamos_folders=True):
         self.recordings_dir = os.path.realpath(os.path.expanduser(recordings_dir))
+        # Also share Steam's screenshots and exported clips, ~/Videos and ~/Pictures.
+        self.steamos_folders = steamos_folders
         self.port = port
         self.idle_seconds = int(idle_minutes * 60)
         # Called with no arguments when sharing stops by itself (idle timeout).
@@ -98,6 +136,8 @@ class ShareServer:
         self._httpd = None
         self._thumb_lock = threading.Lock()
         self._lock = threading.Lock()
+        self._list_lock = threading.Lock()
+        self._listing = ([], {}, 0.0)   # (files, name -> (path, file), monotonic time)
 
     @property
     def active(self):
@@ -122,7 +162,7 @@ class ShareServer:
             self._httpd.daemon_threads = True
             threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
             threading.Thread(target=self._watch_idle, args=(self._httpd,), daemon=True).start()
-        log(f"Sharing {self.recordings_dir} at {', '.join(self.urls)} (PIN {self.pin})")
+        log(f"Sharing {self.recordings_dir}{' and SteamOS media folders' if self.steamos_folders else ''} at {', '.join(self.urls)} (PIN {self.pin})")
 
     def stop(self):
         with self._lock:
@@ -143,60 +183,100 @@ class ShareServer:
                     self.on_stop()
                 return
 
-    # --- recordings ---
+    # --- files ---
 
-    def recordings(self):
-        """Finished recordings, newest first. A name is the path inside the folder, e.g. clips/x.mp4."""
-        found = []
+    def _scan(self, found, source, label, root, depth, deletable, group=None):
+        """Adds the finished videos and images under root, `depth` folder levels down, to found."""
         now = time.time()
-        folders = [("", self.recordings_dir)]
-        try:
-            folders += [(e.name + "/", e.path) for e in os.scandir(self.recordings_dir)
-                        if e.is_dir(follow_symlinks=False) and not e.name.startswith(".")]
-        except FileNotFoundError:
-            return found
-        for prefix, folder in folders:
-            try:
-                entries = list(os.scandir(folder))
-            except OSError:
-                continue
-            for entry in entries:
-                if entry.name.startswith(".") or not entry.name.lower().endswith(VIDEO_EXTENSIONS):
+        root = os.path.realpath(root)
+        for folder, dirs, files in os.walk(root):
+            rel = os.path.relpath(folder, root)
+            level = 0 if rel == "." else rel.count(os.sep) + 1
+            # Hidden folders, the recordings folder (listed on its own) and anything too deep are skipped.
+            dirs[:] = [d for d in dirs if not d.startswith(".") and level < depth
+                       and os.path.join(folder, d) != self.recordings_dir]
+            for file in files:
+                lower = file.lower()
+                kind = "video" if lower.endswith(VIDEO_EXTENSIONS) else "image" if lower.endswith(IMAGE_EXTENSIONS) else None
+                if not kind or file.startswith("."):
                     continue
+                path = os.path.join(folder, file)
                 try:
-                    if not entry.is_file(follow_symlinks=False):
-                        continue
-                    st = entry.stat()
+                    st = os.lstat(path)
                 except OSError:
                     continue
-                if now - st.st_mtime < SETTLE_SECONDS:
+                if not os.path.isfile(path) or os.path.islink(path) or now - st.st_mtime < SETTLE_SECONDS:
                     continue
-                found.append({"name": prefix + entry.name, "folder": prefix.rstrip("/"),
-                              "size": st.st_size, "size_text": human_size(st.st_size), "mtime": st.st_mtime})
-        found.sort(key=lambda f: f["mtime"], reverse=True)
-        return found
+                name = source + "/" + (file if rel == "." else rel.replace(os.sep, "/") + "/" + file)
+                sub = group or ("" if rel == "." else rel.replace(os.sep, "/"))
+                found.append((path, {"name": name, "file": file, "source": source, "label": label, "group": sub,
+                                     "kind": kind, "deletable": deletable, "size": st.st_size,
+                                     "size_text": human_size(st.st_size), "mtime": st.st_mtime}))
+
+    def _list(self):
+        found = []
+        self._scan(found, "recordings", "Recordings", self.recordings_dir, 1, True)
+        if self.steamos_folders:
+            steam = steam_dir()
+            if steam:
+                games = steam_game_names(steam)
+                userdata = os.path.join(steam, "userdata")
+                # userdata/<user>/760/remote/<app id>/screenshots/<file>; Steam's own thumbnails are skipped.
+                pattern = os.path.join(userdata, "*", STEAM_SCREENSHOTS_APP, "remote", "*", "screenshots")
+                for folder in sorted(glob.glob(pattern)):
+                    app_id = os.path.basename(os.path.dirname(folder))
+                    user = os.path.relpath(folder, userdata).split(os.sep)[0]
+                    self._scan(found, f"steam-screenshots/{user}/{app_id}", "Steam screenshots", folder, 0, False,
+                               group=games.get(app_id, f"App {app_id}"))
+                # Steam Game Recording keeps clips as video segments; only finished files (exports) are listed.
+                for user in glob.glob(os.path.join(userdata, "*", "gamerecordings")):
+                    self._scan(found, "steam-clips/" + os.path.basename(os.path.dirname(user)), "Steam clips",
+                               user, 4, False)
+            self._scan(found, "videos", "Videos", os.path.expanduser("~/Videos"), 2, True)
+            self._scan(found, "pictures", "Pictures", os.path.expanduser("~/Pictures"), 2, True)
+        found.sort(key=lambda f: f[1]["mtime"], reverse=True)
+        return [f for _, f in found], {f["name"]: (path, f) for path, f in found}
+
+    def _current(self):
+        with self._list_lock:
+            files, index, when = self._listing
+            if time.monotonic() - when > LIST_CACHE_SECONDS:
+                files, index = self._list()
+                self._listing = (files, index, time.monotonic())
+            return files, index
+
+    def files(self):
+        """Shared videos and images, newest first. A name is <source>/<path inside it>, e.g. recordings/clips/x.mp4."""
+        return self._current()[0]
+
+    recordings = files
+
+    def lookup(self, name):
+        """(path, file info) for a listed name, or (None, None). Only listed files are ever served."""
+        return self._current()[1].get(name, (None, None))
 
     def path_for(self, name):
-        """The recording's path, or None if the name isn't a finished recording in the folder."""
-        if not name or "\\" in name or any(part in ("", ".", "..") or part.startswith(".")
-                                            for part in name.split("/")):
-            return None
-        path = os.path.realpath(os.path.join(self.recordings_dir, name))
-        if not path.startswith(self.recordings_dir + os.sep):
-            return None
-        if not any(f["name"] == name for f in self.recordings()):
-            return None
-        return path
+        return self.lookup(name)[0]
 
     @staticmethod
     def _thumb_prefix(name):
         return name.replace("/", "__") + "."
 
     def thumbnail(self, name):
-        """A cached JPEG still for the recording, or None when ffmpeg isn't available."""
-        path = self.path_for(name)
+        """(bytes, content type) of a small preview, or None (for a video, when ffmpeg isn't available)."""
+        path, info = self.lookup(name)
+        if not path:
+            return None
+        if info["kind"] == "image":
+            # Steam saves a small copy of each screenshot next to it.
+            steam_thumb = os.path.join(os.path.dirname(path), "thumbnails", info["file"])
+            for candidate in (steam_thumb, path):
+                if os.path.isfile(candidate) and os.path.getsize(candidate) <= MAX_IMAGE_THUMB_BYTES:
+                    with open(candidate, "rb") as f:
+                        return f.read(), MIME_TYPES.get(os.path.splitext(candidate)[1].lower(), "image/jpeg")
+            return None
         ffmpeg = shutil.which("ffmpeg")
-        if not path or not ffmpeg:
+        if not ffmpeg:
             return None
         st = os.stat(path)
         thumb = os.path.join(CACHE_DIR, f"{self._thumb_prefix(name)}{int(st.st_mtime)}.jpg")
@@ -216,13 +296,16 @@ class ShareServer:
             if not os.path.exists(thumb):
                 return None
         with open(thumb, "rb") as f:
-            return f.read()
+            return f.read(), "image/jpeg"
 
     def delete(self, name):
-        path = self.path_for(name)
-        if not path:
+        path, info = self.lookup(name)
+        # Steam's own folders are read-only here, so Steam's records of them stay right.
+        if not path or not info["deletable"]:
             return False
         os.remove(path)
+        with self._list_lock:
+            self._listing = ([], {}, 0.0)
         for cached in os.listdir(CACHE_DIR) if os.path.isdir(CACHE_DIR) else []:
             if cached.startswith(self._thumb_prefix(name)):
                 os.remove(os.path.join(CACHE_DIR, cached))
@@ -308,14 +391,14 @@ class _Handler(BaseHTTPRequestHandler):
         if section == "":
             return self._send(200, MAIN_PAGE, "text/html; charset=utf-8")
         if section == "api" and name == "files":
-            return self._json({"files": self.share.recordings(), "folder": self.share.recordings_dir})
+            return self._json({"files": self.share.files()})
         if section == "files":
             return self._send_file(name, download="download" in query)
         if section == "thumb":
-            data = self.share.thumbnail(name)
-            if data is None:
+            thumb = self.share.thumbnail(name)
+            if thumb is None:
                 return self._send(404, "No thumbnail")
-            return self._send(200, data, "image/jpeg", {"Cache-Control": "max-age=86400"})
+            return self._send(200, thumb[0], thumb[1], {"Cache-Control": "max-age=86400"})
         if section == "zip":
             return self._send_zip(query.get("name", []))
         return self._send(404, "Not found")
@@ -367,14 +450,23 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
 
     def _send_zip(self, names):
-        paths = [(n, self.share.path_for(n)) for n in names]
-        if not paths or any(p is None for _, p in paths):
+        found = [self.share.lookup(n) for n in names]
+        if not found or any(path is None for path, _ in found):
             return self._send(404, "Not found")
+        # Inside the zip, files are sorted into readable folders: "Steam screenshots/Portal 2/x.jpg".
+        paths, used = [], set()
+        for path, info in found:
+            stem, ext = os.path.splitext("/".join(p for p in (info["label"], info["group"], info["file"]) if p))
+            arcname, n = stem + ext, 2
+            while arcname in used:
+                arcname, n = f"{stem}-{n}{ext}", n + 1
+            used.add(arcname)
+            paths.append((arcname, path))
         # Video doesn't compress further, so files are stored as-is and streamed; the size isn't
         # known up front, so the connection closes at the end instead.
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Disposition", f"attachment; filename=\"frame-recordings-{time.strftime('%Y%m%d-%H%M')}.zip\"")
+        self.send_header("Content-Disposition", f"attachment; filename=\"framecopy-{time.strftime('%Y%m%d-%H%M')}.zip\"")
         self.send_header("Connection", "close")
         self.end_headers()
         self.close_connection = True
@@ -455,7 +547,12 @@ main { padding:16px; }
 .actions > * { flex:1; text-align:center; padding:6px; font-size:14px; }
 .empty { color:var(--muted); text-align:center; padding:60px 16px; }
 dialog { padding:0; border:0; background:#000; max-width:96vw; }
-dialog video { display:block; max-width:96vw; max-height:85vh; }
+dialog video, dialog img { display:block; max-width:96vw; max-height:85vh; }
+dialog [hidden] { display:none; }
+.filters { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; }
+.filters:empty { display:none; }
+.chip { padding:4px 12px; border-radius:999px; font-size:14px; }
+.chip.on { background:var(--accent); border-color:var(--accent); color:#04121f; }
 dialog::backdrop { background:rgba(0,0,0,.8); }
 .pin { max-width:320px; margin:12vh auto; padding:0 16px; text-align:center; }
 .pin input { font-size:32px; letter-spacing:12px; width:100%; text-align:center; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); margin:16px 0; }
@@ -463,10 +560,10 @@ dialog::backdrop { background:rgba(0,0,0,.8); }
 """
 
 PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Frame recordings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>FrameCopy</title>
 <style>""" + STYLE + """</style></head><body>
 <form class="pin" method="post" action="/login">
-<h1>Frame recordings</h1>
+<h1>FrameCopy</h1>
 <p>Enter the PIN shown in the headset.</p>
 {error}
 <input name="pin" inputmode="numeric" autocomplete="off" maxlength="4" autofocus required>
@@ -474,48 +571,74 @@ PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 </form></body></html>"""
 
 MAIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Frame recordings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>FrameCopy</title>
 <style>""" + STYLE + """</style></head><body>
 <header>
-<h1>Frame recordings</h1>
+<h1>FrameCopy</h1>
 <button id="all">Select all</button>
 <button id="zip" class="primary" disabled>Download selected</button>
 <button id="del" class="danger" disabled>Delete selected</button>
 <button id="refresh">Refresh</button>
+<nav id="filters" class="filters"></nav>
 </header>
-<main><div id="grid" class="grid"></div><p id="empty" class="empty" hidden>No recordings yet.</p></main>
-<dialog id="player"><video id="video" controls autoplay></video></dialog>
+<main><div id="grid" class="grid"></div><p id="empty" class="empty" hidden>Nothing here yet.</p></main>
+<dialog id="player"><video id="video" controls autoplay hidden></video><img id="image" alt="" hidden></dialog>
 <script>
 const grid = document.getElementById("grid"), selected = new Set();
 const enc = encodeURIComponent;
+let files = [], filter = "All";
 function esc(s) { return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function byName(n) { return files.find(f => f.name === n); }
+function deletable() { return [...selected].filter(n => byName(n)?.deletable); }
+function visible() { return filter === "All" ? files : files.filter(f => f.label === filter); }
 function updateButtons() {
-  document.getElementById("zip").disabled = document.getElementById("del").disabled = !selected.size;
+  document.getElementById("zip").disabled = !selected.size;
+  document.getElementById("del").disabled = !deletable().length;
   document.getElementById("zip").textContent = selected.size ? `Download selected (${selected.size})` : "Download selected";
+}
+function render() {
+  const order = ["Recordings", "Steam screenshots", "Steam clips", "Videos", "Pictures"];
+  const labels = [...new Set(files.map(f => f.label))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  if (filter !== "All" && !labels.includes(filter)) filter = "All";
+  document.getElementById("filters").innerHTML = labels.length > 1 ? ["All", ...labels].map(l => {
+    const count = l === "All" ? files.length : files.filter(f => f.label === l).length;
+    return `<button class="chip${l === filter ? " on" : ""}" data-filter="${esc(l)}">${esc(l)} (${count})</button>`;
+  }).join("") : "";
+  const shown = visible();
+  document.getElementById("empty").hidden = shown.length > 0;
+  grid.innerHTML = shown.map(f => `
+    <div class="card${selected.has(f.name) ? " selected" : ""}" data-name="${esc(f.name)}">
+      <div class="thumb" style="background-image:url('/thumb/${enc(f.name)}')">
+        <input type="checkbox" ${selected.has(f.name) ? "checked" : ""} aria-label="Select">${f.kind === "video" ? "&#9654;" : ""}</div>
+      <div class="info"><div class="name">${esc(f.file)}</div>
+        <div class="meta">${esc(f.label)}${f.group ? " &middot; " + esc(f.group) : ""}<br>${new Date(f.mtime * 1000).toLocaleString()} &middot; ${f.size_text}</div>
+        <div class="actions"><a class="button" href="/files/${enc(f.name)}?download">Download</a>
+          ${f.deletable ? '<button class="danger" data-delete>Delete</button>' : ""}</div></div>
+    </div>`).join("");
+  updateButtons();
 }
 async function load() {
   const res = await fetch("/api/files");
   if (res.status === 401) return location.reload();
-  const {files} = await res.json();
-  for (const n of [...selected]) if (!files.some(f => f.name === n)) selected.delete(n);
-  document.getElementById("empty").hidden = files.length > 0;
-  grid.innerHTML = files.map(f => `
-    <div class="card${selected.has(f.name) ? " selected" : ""}" data-name="${esc(f.name)}">
-      <div class="thumb" style="background-image:url('/thumb/${enc(f.name)}')">
-        <input type="checkbox" ${selected.has(f.name) ? "checked" : ""} aria-label="Select">&#9654;</div>
-      <div class="info"><div class="name">${esc(f.name.split("/").pop())}</div>
-        <div class="meta">${f.folder ? esc(f.folder) + " &middot; " : ""}${new Date(f.mtime * 1000).toLocaleString()} &middot; ${f.size_text}</div>
-        <div class="actions"><a class="button" href="/files/${enc(f.name)}?download">Download</a>
-          <button class="danger" data-delete>Delete</button></div></div>
-    </div>`).join("");
-  updateButtons();
+  files = (await res.json()).files;
+  for (const n of [...selected]) if (!byName(n)) selected.delete(n);
+  render();
 }
 async function remove(names) {
-  if (!confirm(names.length === 1 ? `Delete ${names[0]}?` : `Delete ${names.length} recordings?`)) return;
+  const skipped = names.length - names.filter(n => byName(n)?.deletable).length;
+  names = names.filter(n => byName(n)?.deletable);
+  if (!names.length) return;
+  let question = names.length === 1 ? `Delete ${byName(names[0]).file}?` : `Delete ${names.length} files?`;
+  if (skipped) question += `\n${skipped} from Steam's folders will be kept: delete those in Steam.`;
+  if (!confirm(question)) return;
   await fetch("/api/delete", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({names})});
   names.forEach(n => selected.delete(n));
   load();
 }
+document.getElementById("filters").addEventListener("click", e => {
+  const chip = e.target.closest("[data-filter]"); if (!chip) return;
+  filter = chip.dataset.filter; render();
+});
 grid.addEventListener("click", e => {
   const card = e.target.closest(".card"); if (!card) return;
   const name = card.dataset.name;
@@ -525,21 +648,25 @@ grid.addEventListener("click", e => {
   } else if (e.target.matches("[data-delete]")) {
     remove([name]);
   } else if (e.target.closest(".thumb")) {
-    const video = document.getElementById("video");
-    video.src = "/files/" + enc(name); document.getElementById("player").showModal();
+    const isVideo = byName(name).kind === "video";
+    const video = document.getElementById("video"), image = document.getElementById("image");
+    video.hidden = !isVideo; image.hidden = isVideo;
+    (isVideo ? video : image).src = "/files/" + enc(name);
+    document.getElementById("player").showModal();
   }
 });
 document.getElementById("player").addEventListener("click", e => {
-  if (e.target.id === "player") { e.target.close(); }
+  if (e.target.id === "player" || e.target.id === "image") { document.getElementById("player").close(); }
 });
 document.getElementById("player").addEventListener("close", () => {
   const video = document.getElementById("video"); video.pause(); video.removeAttribute("src"); video.load();
+  document.getElementById("image").removeAttribute("src");
 });
 document.getElementById("all").onclick = () => {
-  const cards = [...grid.querySelectorAll(".card")];
-  const all = cards.length && cards.every(c => selected.has(c.dataset.name));
-  cards.forEach(c => all ? selected.delete(c.dataset.name) : selected.add(c.dataset.name));
-  load();
+  const shown = visible();
+  const all = shown.length && shown.every(f => selected.has(f.name));
+  shown.forEach(f => all ? selected.delete(f.name) : selected.add(f.name));
+  render();
 };
 document.getElementById("zip").onclick = () => {
   if (selected.size === 1) location.href = "/files/" + enc([...selected][0]) + "?download";
@@ -552,9 +679,11 @@ load();
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Share recordings with browsers on the same network.")
+    parser = argparse.ArgumentParser(description="Share recordings, screenshots and videos with browsers on the same network.")
     parser.add_argument("--dir", default=DEFAULT_DIR, help=f"recordings folder (default {DEFAULT_DIR})")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"port (default {DEFAULT_PORT})")
+    parser.add_argument("--only-dir", action="store_true",
+                        help="share only --dir, not Steam's screenshots and clips, ~/Videos and ~/Pictures")
     parser.add_argument("--json", action="store_true",
                         help="for apps that run this as a child process: print one JSON line "
                              "({urls, pin, port}) once listening, log to stderr, exit 0 when sharing stops")
@@ -563,7 +692,7 @@ def main():
     if args.json:
         LOG_STREAM = sys.stderr
     stopped = threading.Event()
-    server = ShareServer(args.dir, args.port, on_stop=stopped.set)
+    server = ShareServer(args.dir, args.port, on_stop=stopped.set, steamos_folders=not args.only_dir)
     try:
         server.start()
     except OSError as e:

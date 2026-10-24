@@ -30,7 +30,7 @@ SOURCE_DIR_FILE = os.path.join(CONFIG_DIR, "source_dir")
 
 CONFIRM_SECONDS = 5.0   # window for the second "Uninstall" click
 TICK_SECONDS = 0.1
-COUNT_SECONDS = 5.0     # how often the recordings count is refreshed
+COUNT_SECONDS = 5.0     # how often the file count is refreshed
 
 FONT_CANDIDATES = [
     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
@@ -66,7 +66,7 @@ def read_text(path):
 
 
 def read_config():
-    """Recordings folder and port, from ~/.config/framecopy/config.ini if it sets them."""
+    """Recordings folder, port and whether to share SteamOS media folders, from ~/.config/framecopy/config.ini."""
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     section = config["framecopy"] if config.has_section("framecopy") else {}
@@ -74,7 +74,8 @@ def read_config():
         port = int(section.get("port", DEFAULT_PORT))
     except ValueError:
         port = DEFAULT_PORT
-    return section.get("folder", DEFAULT_DIR), port
+    steamos_folders = str(section.get("steamos_folders", "yes")).lower() not in ("no", "false", "0", "off")
+    return section.get("folder", DEFAULT_DIR), port, steamos_folders
 
 
 def to_texture(img):
@@ -147,14 +148,15 @@ class Menu:
         else:
             draw.text((self.WIDTH // 2, 330), "Turn on sharing to play, download", font=self.font,
                       fill=GREY, anchor="mm")
-            draw.text((self.WIDTH // 2, 380), "or delete recordings from a browser", font=self.font,
+            draw.text((self.WIDTH // 2, 380), "or delete your files from a browser", font=self.font,
                       fill=GREY, anchor="mm")
             draw.text((self.WIDTH // 2, 430), "on the same Wi-Fi.", font=self.font, fill=GREY, anchor="mm")
             footer = ""
 
         folder = server.recordings_dir.replace(os.path.expanduser("~"), "~", 1)
-        count = f"{recordings} recording{'' if recordings == 1 else 's'}"
-        self._text(draw, (self.WIDTH // 2, 540), f"{count} in {folder}", (28, 24, 20), 680,
+        count = f"{recordings} file{'' if recordings == 1 else 's'}"
+        line = f"{count}: recordings, screenshots, videos, pictures" if server.steamos_folders else f"{count} in {folder}"
+        self._text(draw, (self.WIDTH // 2, 540), line, (28, 24, 20), 680,
                    fill=GREY, anchor="mm")
         if footer:
             draw.text((self.WIDTH // 2, 585), footer, font=self.small_font, fill=GREY, anchor="mm")
@@ -279,8 +281,8 @@ def run(server):
 
 
 def main():
-    folder, port = read_config()
-    server = ShareServer(folder, port)
+    folder, port, steamos_folders = read_config()
+    server = ShareServer(folder, port, steamos_folders=steamos_folders)
 
     def quit_app(*_):
         server.stop()
