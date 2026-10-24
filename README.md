@@ -1,30 +1,58 @@
 # FrameCopy
 
-Play, download and delete your Steam Frame recordings from any browser on the same Wi-Fi: a PC, a Mac or a phone. Nothing needs installing on the other device, and nothing needs root on the Frame. It uses only Python's standard library.
+Play, download and delete your Steam Frame recordings from any browser on the same Wi-Fi: a PC, a Mac or a phone. Nothing needs installing on the other device, and nothing needs root on the Frame. Start and stop it from a tab in the SteamVR dashboard.
 
 It's made for recordings from [framecorder](https://github.com/coah80/framecorder), and it works with any folder of videos.
 
-## Use it
+## Install
+
+You can install it straight from the headset. You don't need Desktop Mode.
 
 1. **Turn on Developer Mode:** on the Frame, open **Settings → General** and turn on **Developer Mode** so you can open Konsole.
 2. **Open Konsole,** paste this line and press Enter:
 
 ```bash
-cd ~ && (git clone https://github.com/MWGIH/FrameCopy.git || git -C FrameCopy pull) && python3 FrameCopy/framecopy.py
+cd ~ && (git clone https://github.com/MWGIH/FrameCopy.git || git -C FrameCopy pull) && FrameCopy/install.sh
 ```
 
-3. It prints two addresses and a 4-digit PIN. Open either address on your PC and enter the PIN.
+Running the same line again later updates it.
 
-From the page you can:
+## Use it
 
-- click a recording to play it in the browser
-- download one recording
-- tick several and download them as one zip
-- delete recordings (it asks first)
+Open the **SteamVR dashboard** and select the **FrameCopy** tab.
 
-Press Ctrl+C in Konsole to stop sharing. It also stops by itself after 30 minutes without use.
+1. Press **Start sharing**. The tab shows an address, a 4-digit PIN and a QR code.
+2. On your PC, open the address in a browser and enter the PIN. On a phone you can scan the QR code instead.
+3. Click a recording to play it, download one, tick several to download them as one zip, or delete them (it asks first).
+4. Press **Stop sharing** when you're done. It also stops by itself after 30 minutes without use.
 
-## Options
+Sharing keeps going if you leave VR, until you stop it or it times out.
+
+The tab also has **Update**, which downloads the latest FrameCopy, and **Uninstall** (click twice). Uninstalling never touches your recordings.
+
+## Settings
+
+To share another folder or use another port, create `~/.config/framecopy/config.ini`:
+
+```ini
+[framecopy]
+folder = ~/Videos/framecorder
+port = 8642
+```
+
+Then restart FrameCopy with `systemctl --user restart framecopy`.
+
+## Without the headset
+
+You can also share from Konsole or over SSH, without the app or SteamVR:
+
+```bash
+python3 ~/FrameCopy/framecopy.py
+```
+
+It prints the address and PIN; press Ctrl+C to stop.
+
+## Options for framecopy.py
 
 | Option | What it does |
 |---|---|
