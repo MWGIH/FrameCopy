@@ -11,7 +11,7 @@ SCopy is a [Decky Loader](https://decky.xyz) plugin. Install Decky Loader first 
 https://github.com/MWGIH/SCopy/releases/download/decky-latest/SCopy.zip
 ```
 
-To update, install from the same URL again.
+To update, press **Update plugin** in SCopy, or install from the same URL again.
 
 ## If the URL doesn't work, use the zip instead
 
