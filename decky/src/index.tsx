@@ -32,6 +32,21 @@ const forgetAll = callable<[], Status>("forget_all");
 
 const POLL_MS = 2000;
 
+// The newest build from main, the same zip INSTALL.md gives for "Install plugin from URL".
+const LATEST_ZIP = "https://github.com/MWGIH/SCopy/releases/download/decky-latest/SCopy.zip";
+const INSTALL_TYPE_UPDATE = 2;
+
+declare global {
+  interface Window {
+    DeckyBackend: { call<A extends any[], R>(route: string, ...args: A): Promise<R> };
+  }
+}
+
+// Decky's own installer: it asks to confirm, then replaces this plugin with the downloaded zip.
+// Settings and remembered computers live in ~/.config/scopy, so they stay.
+const updatePlugin = () =>
+  window.DeckyBackend.call("utilities/install_plugin", LATEST_ZIP, "SCopy", "latest", "", INSTALL_TYPE_UPDATE);
+
 // Same shapes as assets/icon.svg, drawn in the menu's own colour.
 function SCopyIcon() {
   return (
@@ -145,6 +160,20 @@ function Content() {
             </div>
           </PanelSectionRow>
         )}
+      </PanelSection>
+      <PanelSection>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            disabled={busy}
+            onClick={() => updatePlugin().catch((e) => setError(`Can't update: ${e?.message ?? e}`))}
+          >
+            Update plugin
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <div style={{ color: MUTED, fontSize: "12px" }}>Installs the newest SCopy from GitHub.</div>
+        </PanelSectionRow>
       </PanelSection>
       <PanelSection title="Remembered computers">
         <PanelSectionRow>
