@@ -50,17 +50,23 @@ declare global {
 const updatePlugin = () =>
   window.DeckyBackend.call("utilities/install_plugin", LATEST_ZIP, "SCopy", "latest", "", INSTALL_TYPE_UPDATE);
 
-// Same shapes as assets/icon.svg, drawn in the menu's own colour.
+// Same shapes as assets/icon.svg, drawn in the menu's own colour. The outline sheet stops short of the
+// front sheet, so only the background shows through the S.
 function SCopyIcon() {
   return (
     <svg viewBox="0 0 256 256" width="1em" height="1em" fill="currentColor">
+      <mask id="scopy-gap">
+        <rect width="256" height="256" fill="white" />
+        <rect x="78" y="66" width="144" height="172" rx="30" fill="black" />
+      </mask>
       <mask id="scopy-s">
         <rect width="256" height="256" fill="white" />
         <text x="150" y="154" dominantBaseline="central" textAnchor="middle"
               fontFamily="sans-serif" fontWeight="bold" fontSize="120" fill="black">S</text>
       </mask>
       <g transform="translate(128 128) scale(1.15) translate(-128 -128)">
-        <rect x="51" y="35" width="110" height="138" rx="15" fill="none" stroke="currentColor" strokeWidth="14" />
+        <rect x="51" y="35" width="110" height="138" rx="15" fill="none" stroke="currentColor" strokeWidth="14"
+              mask="url(#scopy-gap)" />
         <rect x="88" y="76" width="124" height="152" rx="22" mask="url(#scopy-s)" />
       </g>
     </svg>
