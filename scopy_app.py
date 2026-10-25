@@ -5,7 +5,7 @@ sharing and shows how to connect: the address and the PIN.
 
 Runs as a user service that waits for SteamVR. Sharing lives in this process,
 not in SteamVR, so it keeps going if SteamVR quits and stops on its own after
-30 minutes without use.
+30 minutes without use, unless auto-stop is turned off in the tab.
 """
 
 import ctypes
@@ -24,6 +24,8 @@ from scopy import CONFIG_DIR, IDLE_MINUTES, ShareServer, read_config
 APP_KEY = "gamesinhand.scopy"
 INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE_DIR_FILE = os.path.join(CONFIG_DIR, "source_dir")
+# Present when the user turned auto-stop off, so sharing keeps going until "Stop sharing".
+NO_AUTO_STOP_FILE = os.path.join(CONFIG_DIR, "no_auto_stop")
 
 CONFIRM_SECONDS = 5.0   # window for the second "Uninstall" click
 TICK_SECONDS = 0.1
@@ -133,7 +135,8 @@ class Menu:
             x = cx - (label_width + draw.textlength(server.pin, font=pin_font)) / 2
             draw.text((x, 445), "PIN", font=self.font, fill=GREY, anchor="lm")
             draw.text((x + label_width, 445), server.pin, font=pin_font, fill=ACCENT, anchor="lm")
-            footer = f"Stops by itself after {IDLE_MINUTES} minutes without use"
+            footer = (f"Stops by itself after {IDLE_MINUTES} minutes without use" if server.idle_seconds
+                      else "Keeps sharing until you press Stop sharing")
         else:
             draw.text((self.WIDTH // 2, 330), "Turn on sharing to play, download", font=self.font,
                       fill=GREY, anchor="mm")
@@ -148,7 +151,11 @@ class Menu:
         self._text(draw, (self.WIDTH // 2, 540), line, (28, 24, 20), 680,
                    fill=GREY, anchor="mm")
         if footer:
-            draw.text((self.WIDTH // 2, 585), footer, font=self.small_font, fill=GREY, anchor="mm")
+            draw.text((self.WIDTH // 2, 580), footer, font=self.small_font, fill=GREY, anchor="mm")
+
+        auto_stop = "On" if server.idle_seconds else "Off"
+        self._button(draw, (60, 610, 740, 670), f"Auto-stop after {IDLE_MINUTES} min: {auto_stop}", "auto_stop",
+                     fill=self.ON if server.idle_seconds else self.OFF, font=self.small_font)
 
         self._button(draw, (60, 690, 280, 760), "Confirm?" if confirming == "forget" else f"Forget PCs ({devices})",
                      "forget", font=self.small_font)
@@ -232,6 +239,19 @@ def run(server):
                     server.start()
                 except OSError as e:
                     status = f"Can't share on port {server.port}: {e.strerror or e}"
+        elif action == "auto_stop":
+            auto_stop = not server.idle_seconds
+            server.set_idle_minutes(IDLE_MINUTES if auto_stop else 0)
+            try:
+                if auto_stop:
+                    os.remove(NO_AUTO_STOP_FILE)
+                else:
+                    os.makedirs(CONFIG_DIR, exist_ok=True)
+                    open(NO_AUTO_STOP_FILE, "w").close()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                status = f"Can't save the auto-stop setting: {e.strerror or e}"
         elif action == "update":
             source = read_text(SOURCE_DIR_FILE)
             if not (source and os.path.isdir(os.path.join(source, ".git"))):
@@ -283,7 +303,7 @@ def run(server):
             devices = server.device_count()
 
         # Sharing can stop by itself (idle), so the tab follows the server, not the last click.
-        state = (server.active, server.pin, tuple(server.urls) if server.active else (), recordings, devices,
+        state = (server.active, server.idle_seconds, server.pin, tuple(server.urls) if server.active else (), recordings, devices,
                  status, confirm_action)
         if state != shown:
             shown = state
@@ -295,7 +315,8 @@ def run(server):
 
 def main():
     folder, port, steamos_folders = read_config()
-    server = ShareServer(folder, port, steamos_folders=steamos_folders)
+    idle_minutes = 0 if os.path.exists(NO_AUTO_STOP_FILE) else IDLE_MINUTES
+    server = ShareServer(folder, port, idle_minutes=idle_minutes, steamos_folders=steamos_folders)
 
     def quit_app(*_):
         server.stop()

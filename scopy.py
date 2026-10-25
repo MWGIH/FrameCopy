@@ -156,7 +156,8 @@ class ShareServer:
         # Also share Steam's screenshots and exported clips, ~/Videos and ~/Pictures.
         self.steamos_folders = steamos_folders
         self.port = port
-        self.idle_seconds = int(idle_minutes * 60)
+        # 0 means sharing never stops by itself.
+        self.idle_seconds = int((idle_minutes or 0) * 60)
         # Called with no arguments when sharing stops by itself (idle timeout).
         self.on_stop = on_stop
         self.pin = ""
@@ -207,10 +208,16 @@ class ShareServer:
             httpd.server_close()
             log("Sharing stopped")
 
+    def set_idle_minutes(self, minutes):
+        """Changes the idle timeout, also while sharing; 0 turns it off. The countdown restarts from now."""
+        self.idle_seconds = int((minutes or 0) * 60)
+        self._last_request = time.monotonic()
+
     def _watch_idle(self, httpd):
         while self._httpd is httpd:
             time.sleep(10)
-            if time.monotonic() - self._last_request > self.idle_seconds and self._httpd is httpd:
+            if (self.idle_seconds and time.monotonic() - self._last_request > self.idle_seconds
+                    and self._httpd is httpd):
                 log(f"No requests for {self.idle_seconds // 60} minutes")
                 self.stop()
                 if self.on_stop:
