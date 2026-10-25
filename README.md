@@ -58,7 +58,7 @@ On a Steam Frame, open the **SteamVR dashboard** and select the **SCopy** tab. O
 1. Press **Start sharing**. SCopy shows an address and a 4-digit PIN.
 2. On your PC or phone, open the address in a browser and enter the PIN. Leave **Remember this computer** ticked and that browser won't ask for the PIN again, even after SCopy restarts.
 3. Click a video to play it or a picture to view it, download one, tick several to download them as one zip, or delete them (it asks first).
-4. Press **Stop sharing** when you're done. It also stops by itself after 30 minutes without use.
+4. Press **Stop sharing** when you're done. It also stops by itself after 30 minutes without use. On a Steam Frame, press **Auto-stop after 30 min** in the SCopy tab to turn that off, and sharing keeps going until you press **Stop sharing**. SCopy remembers the choice.
 
 Sharing keeps going if you leave VR, until you stop it or it times out.
 
