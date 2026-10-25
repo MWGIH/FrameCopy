@@ -79,6 +79,8 @@ DEVICE_COOKIE_SECONDS = 365 * 24 * 3600
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "scopy")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.ini")
 DEVICES_FILE = os.path.join(CONFIG_DIR, "devices.json")
+# Present when the user turned auto-stop off, so sharing keeps going until it's stopped.
+NO_AUTO_STOP_FILE = os.path.join(CONFIG_DIR, "no_auto_stop")
 CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
                          "scopy", "thumbs")
 MIME_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm",
@@ -147,6 +149,23 @@ def read_config():
         port = DEFAULT_PORT
     steamos_folders = str(section.get("steamos_folders", "yes")).lower() not in ("no", "false", "0", "off")
     return section.get("folder", DEFAULT_DIR), port, steamos_folders
+
+
+def auto_stop_minutes():
+    """IDLE_MINUTES, or 0 if the user turned auto-stop off (in the SteamVR tab or the Decky panel)."""
+    return 0 if os.path.exists(NO_AUTO_STOP_FILE) else IDLE_MINUTES
+
+
+def save_auto_stop(on):
+    """Remembers whether sharing stops by itself; raises OSError if it can't."""
+    if on:
+        try:
+            os.remove(NO_AUTO_STOP_FILE)
+        except FileNotFoundError:
+            pass
+    else:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        open(NO_AUTO_STOP_FILE, "w").close()
 
 
 class ShareServer:
