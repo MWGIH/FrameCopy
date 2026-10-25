@@ -13,7 +13,7 @@ import decky
 os.environ["HOME"] = decky.DECKY_USER_HOME
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "py_modules"))
 
-from scopy import IDLE_MINUTES, ShareServer, read_config  # noqa: E402
+from scopy import IDLE_MINUTES, ShareServer, auto_stop_minutes, read_config, save_auto_stop  # noqa: E402
 
 
 class Plugin:
@@ -21,7 +21,7 @@ class Plugin:
 
     async def _main(self):
         folder, port, steamos_folders = read_config()
-        self.server = ShareServer(folder, port, steamos_folders=steamos_folders)
+        self.server = ShareServer(folder, port, idle_minutes=auto_stop_minutes(), steamos_folders=steamos_folders)
 
     async def _unload(self):
         if self.server:
@@ -40,6 +40,7 @@ class Plugin:
             "files": len(files),
             "devices": server.device_count(),
             "idle_minutes": IDLE_MINUTES,
+            "auto_stop": bool(server.idle_seconds),
         }
 
     async def start(self):
@@ -56,4 +57,12 @@ class Plugin:
 
     async def forget_all(self):
         self.server.forget_all_devices()
+        return await self.status()
+
+    async def set_auto_stop(self, on):
+        self.server.set_idle_minutes(IDLE_MINUTES if on else 0)
+        try:
+            save_auto_stop(on)
+        except OSError as e:
+            return {"error": f"Can't save the auto-stop setting: {e.strerror or e}"}
         return await self.status()

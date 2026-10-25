@@ -6,6 +6,7 @@ import {
   PanelSectionRow,
   showModal,
   staticClasses,
+  ToggleField,
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
 import { useEffect, useState } from "react";
@@ -22,6 +23,7 @@ interface Status {
   files: number;
   devices: number;
   idle_minutes: number;
+  auto_stop: boolean;
   error?: string;
 }
 
@@ -29,6 +31,7 @@ const getStatus = callable<[], Status>("status");
 const startSharing = callable<[], Status>("start");
 const stopSharing = callable<[], Status>("stop");
 const forgetAll = callable<[], Status>("forget_all");
+const setAutoStop = callable<[on: boolean], Status>("set_auto_stop");
 
 const POLL_MS = 2000;
 
@@ -148,8 +151,10 @@ function Content() {
             </PanelSectionRow>
             <PanelSectionRow>
               <div style={{ color: MUTED, fontSize: "12px" }}>
-                {status.files} files: recordings, screenshots, videos, pictures. Stops by itself after{" "}
-                {status.idle_minutes} minutes without use.
+                {status.files} files: recordings, screenshots, videos, pictures.{" "}
+                {status.auto_stop
+                  ? `Stops by itself after ${status.idle_minutes} minutes without use.`
+                  : "Keeps sharing until you press Stop sharing."}
               </div>
             </PanelSectionRow>
           </>
@@ -160,6 +165,14 @@ function Content() {
             </div>
           </PanelSectionRow>
         )}
+        <PanelSectionRow>
+          <ToggleField
+            label={`Auto-stop after ${status.idle_minutes} min`}
+            checked={status.auto_stop}
+            disabled={busy}
+            onChange={(on) => run(() => setAutoStop(on))}
+          />
+        </PanelSectionRow>
       </PanelSection>
       <PanelSection>
         <PanelSectionRow>

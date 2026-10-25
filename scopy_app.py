@@ -19,13 +19,11 @@ import time
 import openvr
 from PIL import Image, ImageDraw, ImageFont
 
-from scopy import CONFIG_DIR, IDLE_MINUTES, ShareServer, read_config
+from scopy import CONFIG_DIR, IDLE_MINUTES, ShareServer, auto_stop_minutes, read_config, save_auto_stop
 
 APP_KEY = "gamesinhand.scopy"
 INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE_DIR_FILE = os.path.join(CONFIG_DIR, "source_dir")
-# Present when the user turned auto-stop off, so sharing keeps going until "Stop sharing".
-NO_AUTO_STOP_FILE = os.path.join(CONFIG_DIR, "no_auto_stop")
 
 CONFIRM_SECONDS = 5.0   # window for the second "Uninstall" click
 TICK_SECONDS = 0.1
@@ -243,13 +241,7 @@ def run(server):
             auto_stop = not server.idle_seconds
             server.set_idle_minutes(IDLE_MINUTES if auto_stop else 0)
             try:
-                if auto_stop:
-                    os.remove(NO_AUTO_STOP_FILE)
-                else:
-                    os.makedirs(CONFIG_DIR, exist_ok=True)
-                    open(NO_AUTO_STOP_FILE, "w").close()
-            except FileNotFoundError:
-                pass
+                save_auto_stop(auto_stop)
             except OSError as e:
                 status = f"Can't save the auto-stop setting: {e.strerror or e}"
         elif action == "update":
@@ -315,8 +307,7 @@ def run(server):
 
 def main():
     folder, port, steamos_folders = read_config()
-    idle_minutes = 0 if os.path.exists(NO_AUTO_STOP_FILE) else IDLE_MINUTES
-    server = ShareServer(folder, port, idle_minutes=idle_minutes, steamos_folders=steamos_folders)
+    server = ShareServer(folder, port, idle_minutes=auto_stop_minutes(), steamos_folders=steamos_folders)
 
     def quit_app(*_):
         server.stop()
